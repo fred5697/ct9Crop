@@ -1,347 +1,225 @@
-
+// java
 package com.pbn.ct9crop;
 
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.graphics.PointF;
 import android.util.Log;
 
+import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
+import org.opencv.core.Core;
+import org.opencv.core.Mat;
+import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
+import org.opencv.imgproc.Imgproc;
+
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 public class MarkerDetector {
     private static final String TAG = "MarkerDetector";
+    private static boolean openCvLoaded = false;
 
-    private static final int MIN_MARKER_AREA = 50;
-    private static final int MAX_MARKER_AREA = 4000;
-    private static final int MAX_MARKERS_RETURNED = 12;
-
-    private int[] grayLinear = null;          // width * height
-    private int[] integral = null;            // (width+1)*(height+1)
-    private int imgWidth = 0, imgHeight = 0;
+    static {
+        try {
+            System.loadLibrary("opencv_java4");
+            openCvLoaded = true;
+            Log.i(TAG, "Loaded libopencv_java4 via System.loadLibrary");
+        } catch (UnsatisfiedLinkError e) {
+            Log.w(TAG, "System.loadLibrary(opencv_java4) failed, try OpenCVLoader.initDebug()", e);
+            try {
+                if (OpenCVLoader.initDebug()) {
+                    openCvLoaded = true;
+                    Log.i(TAG, "OpenCV initialized via OpenCVLoader.initDebug()");
+                } else {
+                    Log.e(TAG, "OpenCVLoader.initDebug() returned false");
+                }
+            } catch (Throwable t) {
+                Log.e(TAG, "OpenCVLoader.initDebug() threw", t);
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "Unexpected error loading OpenCV native library", t);
+        }
+    }
 
     public static class DetectionResult {
         public boolean detected;
-        public int markerCount;
-        public PointF[] corners;
-        public PointF[] markerPositions;
+        public PointF[] corners;         // 期望 4 个角点（顺序 TL, TR, BR, BL）
+        public int markerCount;         // 期望 9
+        public PointF[] markerPositions; // 9 个中心点（原图坐标）
 
         public DetectionResult() {
-            detected = false;
-            markerCount = 0;
+            this.detected = false;
+            this.corners = null;
+            this.markerCount = 0;
+            this.markerPositions = null;
         }
     }
 
+    public MarkerDetector() { }
+
+    // 找最长连续大于 thr 的段（包含两端）
+    private static int[] findLongestSegment(double[] a, double thr) {
+        int bestL = -1, bestR = -2;
+        int curL = -1;
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] > thr) {
+                if (curL == -1) curL = i;
+            } else {
+                if (curL != -1) {
+                    int curR = i - 1;
+                    if (curR - curL > bestR - bestL) { bestL = curL; bestR = curR; }
+                    curL = -1;
+                }
+            }
+        }
+        if (curL != -1) {
+            int curR = a.length - 1;
+            if (curR - curL > bestR - bestL) { bestL = curL; bestR = curR; }
+        }
+        if (bestL == -1) return new int[]{0, -1};
+        return new int[]{bestL, bestR};
+    }
+
+    /**
+     * 基于饱和度的 ROI 查找（返回 roi Rect，相对于原图坐标）
+     */
+    private static Rect findColorGridRoi(Mat src) {
+        if (src == null || src.empty()) return new Rect(0,0,0,0);
+
+        Mat hsv = new Mat();
+        Imgproc.cvtColor(src, hsv, Imgproc.COLOR_BGR2HSV);
+
+        List<Mat> ch = new ArrayList<>();
+        Core.split(hsv, ch);
+        Mat sat = ch.get(1); // 饱和度通道
+
+        int rows = sat.rows();
+        int cols = sat.cols();
+
+        double[] colMeans = new double[cols];
+        for (int c = 0; c < cols; c++) {
+            Mat col = sat.col(c);
+            Scalar m = Core.mean(col);
+            colMeans[c] = m.val[0];
+            col.release();
+        }
+
+        double[] rowMeans = new double[rows];
+        for (int r = 0; r < rows; r++) {
+            Mat row = sat.row(r);
+            Scalar m = Core.mean(row);
+            rowMeans[r] = m.val[0];
+            row.release();
+        }
+
+        double globalMean = Core.mean(sat).val[0];
+        double thr = Math.max(12.0, globalMean * 0.55);
+
+        int[] colSeg = findLongestSegment(colMeans, thr);
+        int[] rowSeg = findLongestSegment(rowMeans, thr);
+
+        int left = colSeg[0], right = colSeg[1], top = rowSeg[0], bottom = rowSeg[1];
+        if (left >= right || top >= bottom) {
+            // fallback: 中心裁剪 60% 区域
+            int w = cols * 6 / 10;
+            int h = rows * 6 / 10;
+            left = Math.max(0, (cols - w) / 2);
+            top = Math.max(0, (rows - h) / 2);
+            right = left + w - 1;
+            bottom = top + h - 1;
+        }
+
+        // 扩展少量像素，确保包含边缘色块
+        int padW = Math.max(2, (int)((right - left + 1) * 0.06));
+        int padH = Math.max(2, (int)((bottom - top + 1) * 0.06));
+        left = Math.max(0, left - padW);
+        top = Math.max(0, top - padH);
+        right = Math.min(cols - 1, right + padW);
+        bottom = Math.min(rows - 1, bottom + padH);
+
+        hsv.release();
+        sat.release();
+        for (Mat m : ch) if (m != null && !m.empty()) m.release();
+
+        int w = Math.max(0, right - left + 1);
+        int h = Math.max(0, bottom - top + 1);
+        if (w <= 0 || h <= 0) return new Rect(0,0,0,0);
+        return new Rect(left, top, w, h);
+    }
+
+    /**
+     * 主检测函数：找到包含 3x3 色块的 ROI，然后按网格采样 9 个中心点并返回四角。
+     */
     public DetectionResult detectMarkers(Bitmap bitmap) {
-        // 缩放为较小宽度以加速处理
-        int targetWidth = 480;
-        int targetHeight = (int) (bitmap.getHeight() * (targetWidth / (float) bitmap.getWidth()));
-        Bitmap scaled = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true);
+        DetectionResult res = new DetectionResult();
+        if (bitmap == null) return res;
+        if (!openCvLoaded) {
+            Log.e(TAG, "OpenCV native library not loaded; skipping detection");
+            return res;
+        }
 
-        boolean[][] binary = createBinaryImage(scaled);
-        List<Marker> markers = findMarkers(binary, targetWidth, targetHeight);
-
-        Log.d(TAG, "Found " + markers.size() + " potential markers");
-
-        DetectionResult result = new DetectionResult();
-        result.markerCount = markers.size();
-
-        if (markers.size() >= 4) {
-            // 按接近平方排序并取前 4
-            Collections.sort(markers, (a, b) -> {
-                float wa = (a.maxX - a.minX + 1);
-                float ha = (a.maxY - a.minY + 1);
-                float wb = (b.maxX - b.minX + 1);
-                float hb = (b.maxY - b.minY + 1);
-                float sqA = Math.abs(wa - ha) / Math.max(wa, ha);
-                float sqB = Math.abs(wb - hb) / Math.max(wb, hb);
-                int cmp = Float.compare(sqA, sqB);
-                if (cmp != 0) return cmp;
-                return Integer.compare(b.size, a.size);
-            });
-            if (markers.size() > 4) markers = new ArrayList<>(markers.subList(0, 4));
-            result.markerCount = markers.size();
-
-            float scaleX = bitmap.getWidth() / (float) targetWidth;
-            float scaleY = bitmap.getHeight() / (float) targetHeight;
-
-            result.markerPositions = new PointF[markers.size()];
-            for (int i = 0; i < markers.size(); i++) {
-                result.markerPositions[i] = new PointF(
-                        markers.get(i).centerX * scaleX,
-                        markers.get(i).centerY * scaleY
-                );
+        Mat src = new Mat();
+        try {
+            Utils.bitmapToMat(bitmap, src); // BGR mat
+            Rect roiRect = findColorGridRoi(src);
+            if (roiRect == null || roiRect.width <= 8 || roiRect.height <= 8) {
+                // ROI 太小，认为未检测到
+                return res;
             }
 
-            PointF[] corners = findGridCorners(markers);
-            if (corners != null) {
-                result.detected = true;
-                result.corners = new PointF[4];
-                for (int i = 0; i < 4; i++) {
-                    result.corners[i] = new PointF(
-                            corners[i].x * scaleX,
-                            corners[i].y * scaleY
-                    );
+            Mat cropped = new Mat(src, roiRect).clone();
+            // 基本验证：检查 cropped 的平均亮度或饱和度，判断是否为色块区域
+            Mat hsv = new Mat();
+            Imgproc.cvtColor(cropped, hsv, Imgproc.COLOR_BGR2HSV);
+            List<Mat> ch = new ArrayList<>();
+            Core.split(hsv, ch);
+            double meanSat = Core.mean(ch.get(1)).val[0];
+            double meanVal = Core.mean(ch.get(2)).val[0];
+
+            // 如果饱和度/亮度太低，可能不是色块
+            boolean likelyGrid = (meanSat > 10.0) || (meanVal > 30.0);
+
+            // 计算 3x3 网格中心点（在原图坐标系中）
+            PointF[] centers = new PointF[9];
+            int idx = 0;
+            int cw = roiRect.width;
+            int chh = roiRect.height;
+            for (int r = 0; r < 3; r++) {
+                for (int c = 0; c < 3; c++) {
+                    float cx = (c + 0.5f) * cw / 3f;
+                    float cy = (r + 0.5f) * chh / 3f;
+                    // 转换为原图坐标
+                    centers[idx++] = new PointF(roiRect.x + cx, roiRect.y + cy);
                 }
             }
+
+            // 填充 DetectionResult
+            res.markerCount = 9;
+            res.markerPositions = centers;
+            res.corners = new PointF[] {
+                    new PointF(roiRect.x, roiRect.y), // TL
+                    new PointF(roiRect.x + roiRect.width - 1, roiRect.y), // TR
+                    new PointF(roiRect.x + roiRect.width - 1, roiRect.y + roiRect.height - 1), // BR
+                    new PointF(roiRect.x, roiRect.y + roiRect.height - 1) // BL
+            };
+
+            res.detected = likelyGrid; // 依据均值简单判断
+            // 清理
+            hsv.release();
+            for (Mat m : ch) if (m != null && !m.empty()) m.release();
+            if (cropped != null && !cropped.empty()) cropped.release();
+
+        } catch (Exception e) {
+            Log.e(TAG, "Exception in detectMarkers", e);
+            // 返回默认未检测
+            res.detected = false;
+            res.markerCount = 0;
+            res.corners = null;
+            res.markerPositions = null;
+        } finally {
+            if (src != null && !src.empty()) src.release();
         }
-
-        return result;
-    }
-
-    // 使用 Otsu 自动阈值并同时构建灰度线性数组与 integral image
-    private boolean[][] createBinaryImage(Bitmap bmp) {
-        imgWidth = bmp.getWidth();
-        imgHeight = bmp.getHeight();
-        grayLinear = new int[imgWidth * imgHeight];
-        int[] hist = new int[256];
-
-        for (int y = 0; y < imgHeight; y++) {
-            for (int x = 0; x < imgWidth; x++) {
-                int p = bmp.getPixel(x, y);
-                int b = (Color.red(p) + Color.green(p) + Color.blue(p)) / 3;
-                grayLinear[y * imgWidth + x] = b;
-                hist[b & 0xff]++;
-            }
-        }
-
-        int otsu = computeOtsuThreshold(hist, imgWidth * imgHeight);
-        // 给 Otsu 一个小偏移来避免非常亮/暗图像误判
-        int threshold = Math.max(20, Math.min(otsu - 8, 200));
-
-        // 构建 integral image (尺寸 (w+1)*(h+1) 便于区域和计算)
-        integral = new int[(imgWidth + 1) * (imgHeight + 1)];
-        for (int y = 1; y <= imgHeight; y++) {
-            int rowSum = 0;
-            int baseSrc = (y - 1) * imgWidth;
-            int baseInt = y * (imgWidth + 1);
-            int baseIntPrev = (y - 1) * (imgWidth + 1);
-            for (int x = 1; x <= imgWidth; x++) {
-                rowSum += grayLinear[baseSrc + (x - 1)];
-                integral[baseInt + x] = integral[baseIntPrev + x] + rowSum;
-            }
-        }
-
-        boolean[][] binary = new boolean[imgHeight][imgWidth];
-        for (int y = 0; y < imgHeight; y++) {
-            int rowBase = y * imgWidth;
-            for (int x = 0; x < imgWidth; x++) {
-                binary[y][x] = grayLinear[rowBase + x] < threshold;
-            }
-        }
-        return binary;
-    }
-
-    private int computeOtsuThreshold(int[] hist, int total) {
-        double sum = 0;
-        for (int t = 0; t < 256; t++) sum += t * hist[t];
-        double sumB = 0;
-        int wB = 0;
-        double varMax = 0;
-        int threshold = 0;
-        for (int t = 0; t < 256; t++) {
-            wB += hist[t];
-            if (wB == 0) continue;
-            int wF = total - wB;
-            if (wF == 0) break;
-            sumB += (double) (t * hist[t]);
-            double mB = sumB / wB;
-            double mF = (sum - sumB) / wF;
-            double varBetween = (double) wB * (double) wF * (mB - mF) * (mB - mF);
-            if (varBetween > varMax) {
-                varMax = varBetween;
-                threshold = t;
-            }
-        }
-        return threshold;
-    }
-
-    private List<Marker> findMarkers(boolean[][] binary, int width, int height) {
-        int area = width * height;
-        byte[] visited = new byte[area]; // 0/1
-        List<Marker> markers = new ArrayList<>();
-
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int idx = y * width + x;
-                if (binary[y][x] && visited[idx] == 0) {
-                    Marker m = floodFill(binary, visited, x, y, width, height);
-                    if (m == null) continue;
-                    int a = m.size;
-                    int w = m.maxX - m.minX + 1;
-                    int h = m.maxY - m.minY + 1;
-                    float aspect = h > 0 ? (float) w / h : 0f;
-                    if (a >= MIN_MARKER_AREA && a <= MAX_MARKER_AREA
-                            && aspect > 0.5f && aspect < 2.0f
-                            && hasWhiteBorder(m)) {
-                        markers.add(m);
-                    }
-                }
-            }
-        }
-
-        // 按面积降序并限制返回数量
-        Collections.sort(markers, new Comparator<Marker>() {
-            @Override
-            public int compare(Marker a, Marker b) {
-                return Integer.compare(b.size, a.size);
-            }
-        });
-        if (markers.size() > MAX_MARKERS_RETURNED) {
-            return new ArrayList<>(markers.subList(0, MAX_MARKERS_RETURNED));
-        }
-        return markers;
-    }
-
-    // 高效栈实现 flood-fill，面积超上限时早期退出并返回 null（或标记过大）
-    private Marker floodFill(boolean[][] binary, byte[] visited, int startX, int startY,
-                             int width, int height) {
-        int maxSize = width * height;
-        int[] stack = new int[maxSize];
-        int sp = 0;
-        int startIdx = startY * width + startX;
-        stack[sp++] = startIdx;
-
-        Marker m = new Marker();
-        while (sp > 0) {
-            int idx = stack[--sp];
-            if (visited[idx] != 0) continue;
-            int y = idx / width;
-            int x = idx - y * width;
-            if (!binary[y][x]) continue;
-
-            visited[idx] = 1;
-            m.addPoint(x, y);
-            if (m.size > MAX_MARKER_AREA) {
-                // 早退：标记过大，返回 null 以便上层忽略
-                return null;
-            }
-
-            // 4-neighbors 推入（检查边界）
-            if (x + 1 < width) {
-                int i = idx + 1;
-                if (visited[i] == 0 && binary[y][x + 1]) stack[sp++] = i;
-            }
-            if (x - 1 >= 0) {
-                int i = idx - 1;
-                if (visited[i] == 0 && binary[y][x - 1]) stack[sp++] = i;
-            }
-            if (y + 1 < height) {
-                int i = idx + width;
-                if (visited[i] == 0 && binary[y + 1][x]) stack[sp++] = i;
-            }
-            if (y - 1 >= 0) {
-                int i = idx - width;
-                if (visited[i] == 0 && binary[y - 1][x]) stack[sp++] = i;
-            }
-        }
-
-        return m.size > 0 ? m : null;
-    }
-
-    // 使用 integral image 快速计算边环平均亮度
-    private boolean hasWhiteBorder(Marker m) {
-        if (integral == null || grayLinear == null) return false;
-        int pad = 3;
-        int sx = Math.max(0, m.minX - pad);
-        int ex = Math.min(imgWidth - 1, m.maxX + pad);
-        int sy = Math.max(0, m.minY - pad);
-        int ey = Math.min(imgHeight - 1, m.maxY + pad);
-
-        // outer rect sum
-        int outerSum = sumRect(sx, sy, ex, ey);
-        int outerArea = (ex - sx + 1) * (ey - sy + 1);
-
-        // inner rect (marker bounding box, clamp)
-        int isx = Math.max(0, m.minX);
-        int iex = Math.min(imgWidth - 1, m.maxX);
-        int isy = Math.max(0, m.minY);
-        int iey = Math.min(imgHeight - 1, m.maxY);
-        int innerSum = sumRect(isx, isy, iex, iey);
-        int innerArea = (iex - isx + 1) * (iey - isy + 1);
-
-        int borderSum = outerSum - innerSum;
-        int borderCount = outerArea - innerArea;
-        if (borderCount <= 0) return false;
-        int avg = borderSum / borderCount;
-
-        // 白色阈值可以调整（近似 180）
-        return avg >= 160;
-    }
-
-    // integral image 求和，坐标为 inclusive (x0,y0)-(x1,y1)
-    private int sumRect(int x0, int y0, int x1, int y1) {
-        if (x0 > x1 || y0 > y1) return 0;
-        int w = imgWidth + 1;
-        int A = integral[y0 * w + x0];
-        int B = integral[y0 * w + (x1 + 1)];
-        int C = integral[(y1 + 1) * w + x0];
-        int D = integral[(y1 + 1) * w + (x1 + 1)];
-        return D - B - C + A;
-    }
-
-    private PointF[] findGridCorners(List<Marker> markers) {
-        if (markers.size() < 3) return null;
-        float avgX = 0, avgY = 0;
-        for (Marker m : markers) {
-            avgX += m.centerX;
-            avgY += m.centerY;
-        }
-        avgX /= markers.size();
-        avgY /= markers.size();
-
-        Marker topLeft = null, topRight = null, bottomLeft = null, bottomRight = null;
-        float minTLD = Float.MAX_VALUE, minTR = Float.MAX_VALUE, minBL = Float.MAX_VALUE, minBR = Float.MAX_VALUE;
-
-        for (Marker m : markers) {
-            float dx = m.centerX - avgX;
-            float dy = m.centerY - avgY;
-            float dist = (float) Math.hypot(dx, dy);
-            if (dx < 0 && dy < 0 && dist < minTLD) { topLeft = m; minTLD = dist; }
-            if (dx > 0 && dy < 0 && dist < minTR) { topRight = m; minTR = dist; }
-            if (dx < 0 && dy > 0 && dist < minBL) { bottomLeft = m; minBL = dist; }
-            if (dx > 0 && dy > 0 && dist < minBR) { bottomRight = m; minBR = dist; }
-        }
-
-        int corners = 0;
-        if (topLeft != null) corners++;
-        if (topRight != null) corners++;
-        if (bottomLeft != null) corners++;
-        if (bottomRight != null) corners++;
-        if (corners < 3) return null;
-
-        float expansion = -10;
-        PointF tl = topLeft != null ? new PointF(topLeft.centerX - expansion, topLeft.centerY - expansion)
-                : new PointF(avgX - 150, avgY - 150);
-        PointF tr = topRight != null ? new PointF(topRight.centerX + expansion, topRight.centerY - expansion)
-                : new PointF(avgX + 150, avgY - 150);
-        PointF br = bottomRight != null ? new PointF(bottomRight.centerX + expansion, bottomRight.centerY + expansion)
-                : new PointF(avgX + 150, avgY + 150);
-        PointF bl = bottomLeft != null ? new PointF(bottomLeft.centerX - expansion, bottomLeft.centerY + expansion)
-                : new PointF(avgX - 150, avgY + 150);
-
-        return new PointF[]{tl, tr, br, bl};
-    }
-
-    private static class Marker {
-        int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
-        int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
-        int sumX = 0, sumY = 0;
-        int size = 0;
-        float centerX, centerY;
-
-        void addPoint(int x, int y) {
-            minX = Math.min(minX, x);
-            maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y);
-            maxY = Math.max(maxY, y);
-            sumX += x;
-            sumY += y;
-            size++;
-            centerX = (float) sumX / size;
-            centerY = (float) sumY / size;
-        }
+        return res;
     }
 }
