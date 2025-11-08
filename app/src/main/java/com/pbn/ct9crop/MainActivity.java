@@ -187,6 +187,9 @@ public class MainActivity extends AppCompatActivity {
         try {
             Bitmap croppedGrid = perspectiveCorrection(lastDetectedBitmap, lastDetectedCorners);
 
+            int[][][] avgRgb = sampleAverageRGBFromRectified(croppedGrid, 4);
+            showGridRGBDialog(avgRgb);
+
             File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
             File ct9Dir = new File(picturesDir, "CT9Crop");
             if (!ct9Dir.exists()) {
@@ -367,4 +370,176 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         cameraExecutor.shutdown();
     }
+
+    // java
+// Add to `app/src/main/java/com/pbn/ct9crop/MainActivity.java`
+    private int[][][] sampleAverageRGBFromRectified(Bitmap bmp, int patchSize) {
+        // 返回 [row][col][channel]  channel: 0=R,1=G,2=B
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        int[][][] result = new int[3][3][3];
+
+        int half = patchSize / 2;
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 3; col++) {
+                // 以均匀 3x3 网格中心为采样点
+                float cx = (col + 0.5f) * w / 3f;
+                float cy = (row + 0.5f) * h / 3f;
+                int startX = Math.round(cx) - half;
+                int startY = Math.round(cy) - half;
+
+                long sumR = 0, sumG = 0, sumB = 0;
+                int count = 0;
+
+                for (int yy = 0; yy < patchSize; yy++) {
+                    int py = startY + yy;
+                    if (py < 0 || py >= h) continue;
+                    for (int xx = 0; xx < patchSize; xx++) {
+                        int px = startX + xx;
+                        if (px < 0 || px >= w) continue;
+                        int pixel = bmp.getPixel(px, py);
+                        sumR += android.graphics.Color.red(pixel);
+                        sumG += android.graphics.Color.green(pixel);
+                        sumB += android.graphics.Color.blue(pixel);
+                        count++;
+                    }
+                }
+
+                if (count == 0) {
+                    result[row][col][0] = result[row][col][1] = result[row][col][2] = 0;
+                } else {
+                    result[row][col][0] = (int) (sumR / count);
+                    result[row][col][1] = (int) (sumG / count);
+                    result[row][col][2] = (int) (sumB / count);
+                }
+            }
+        }
+        return result;
+    }
+
+    private void showGridRGBDialog(int[][][] rgb) {
+        StringBuilder sb = new StringBuilder();
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                sb.append(String.format("Cell %d,%d: R=%d G=%d B=%d", r, c,
+                        rgb[r][c][0], rgb[r][c][1], rgb[r][c][2]));
+                if (!(r == 2 && c == 2)) sb.append("\n");
+            }
+        }
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Average RGB (4x4 center patch)")
+                .setMessage(sb.toString())
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    // java
+// Add to `app/src/main/java/com/pbn/ct9crop/MainActivity.java`
+    private int[] findBrightestRGBInBitmap(Bitmap bmp) {
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        int bestR = 0, bestG = 0, bestB = 0;
+        int bestSum = -1;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int p = bmp.getPixel(x, y);
+                int r = Color.red(p);
+                int g = Color.green(p);
+                int b = Color.blue(p);
+                int sum = r + g + b;
+                if (sum > bestSum) {
+                    bestSum = sum;
+                    bestR = r; bestG = g; bestB = b;
+                }
+            }
+        }
+        return new int[]{bestR, bestG, bestB};
+    }
+
+    /**
+     * 在仅亮度高于 threshold 的像素中寻找最亮像素（用于 marker 白边场景）
+     * threshold: 0..255, 建议 ~200
+     */
+    private int[] findBrightestRGBInBrightRegions(Bitmap bmp, int threshold) {
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        int bestR = 0, bestG = 0, bestB = 0;
+        int bestSum = -1;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int p = bmp.getPixel(x, y);
+                int r = Color.red(p);
+                int g = Color.green(p);
+                int b = Color.blue(p);
+                int brightness = (r + g + b) / 3;
+                if (brightness < threshold) continue;
+                int sum = r + g + b;
+                if (sum > bestSum) {
+                    bestSum = sum;
+                    bestR = r; bestG = g; bestB = b;
+                }
+            }
+        }
+        // 若未找到任何亮区域，则退回整图最亮
+        if (bestSum < 0) return findBrightestRGBInBitmap(bmp);
+        return new int[]{bestR, bestG, bestB};
+    }
+
+    /**
+     * 以参考最亮 RGB 对 3x3 rgb 做归一化（参考亮组映射到 255,255,255）
+     * 输入: rgb[3][3][3] channel: 0=R,1=G,2=B
+     */
+    private int[][][] normalizeGridRGBByReference(int[][][] rgb, int[] referenceRGB) {
+        int[][][] out = new int[3][3][3];
+        int refR = Math.max(0, referenceRGB[0]);
+        int refG = Math.max(0, referenceRGB[1]);
+        int refB = Math.max(0, referenceRGB[2]);
+
+        boolean anyZero = (refR == 0) || (refG == 0) || (refB == 0);
+        float scaleR, scaleG, scaleB;
+        if (anyZero) {
+            int maxChannel = Math.max(1, Math.max(refR, Math.max(refG, refB)));
+            float uniform = 255f / (float) maxChannel;
+            scaleR = scaleG = scaleB = uniform;
+        } else {
+            scaleR = 255f / (float) refR;
+            scaleG = 255f / (float) refG;
+            scaleB = 255f / (float) refB;
+        }
+
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                int R = rgb[r][c][0];
+                int G = rgb[r][c][1];
+                int B = rgb[r][c][2];
+                int nR = Math.round(R * scaleR);
+                int nG = Math.round(G * scaleG);
+                int nB = Math.round(B * scaleB);
+                out[r][c][0] = Math.min(255, Math.max(0, nR));
+                out[r][c][1] = Math.min(255, Math.max(0, nG));
+                out[r][c][2] = Math.min(255, Math.max(0, nB));
+            }
+        }
+        return out;
+    }
+
+// 示例：在 captureAndSaveGrid() 中替换原来的归一化调用部分
+// ---------------------------
+// Bitmap croppedGrid = perspectiveCorrection(lastDetectedBitmap, lastDetectedCorners);
+// int[][][] avgRgb = sampleAverageRGBFromRectified(croppedGrid, 4);
+
+// 选项 A: 使用整张校正图的最亮像素作为参考
+// int[] brightest = findBrightestRGBInBitmap(croppedGrid);
+
+// 选项 B: 只在很亮的区域（如 marker 白边）中找最亮，阈值可调整（例如 200）
+// int[] brightest = findBrightestRGBInBrightRegions(croppedGrid, 200);
+
+// 然后归一化并显示
+// int[][][] normalized = normalizeGridRGBByReference(avgRgb, brightest);
+// showGridRGBDialog(normalized);
+// ---------------------------
+
+
+
 }
