@@ -65,92 +65,115 @@ public class MarkerDetector {
         // 如果有 marker，取第一个作为 TL 并输出其平均 HSV
         if (markers.size() > 0) {
             Marker tl = markers.get(0);
+            //float dxtl = markers.centerX;
+            //float dytl = Marker.centerX;
+
             float avgH = tl.getAvgH();
             float avgS = tl.getAvgS() * 100f; // percent
             float avgV = tl.getAvgV() * 100f; // percent
 
-            Log.d(TAG, String.format("Found %d potential markers \u2014 TL HSV: H=%.1f° S=%.0f%% V=%.0f%%",
+            Log.d(TAG, String.format("FoundxTL %d potential markers \u2014 TL HSV: H=%.1f° S=%.0f%% V=%.0f%%",
                     markers.size(), avgH, avgS, avgV));
+
+            // 单独用 BL 阈值再找一个 marker（H 200..220, S>0.68, V>0.73）
+            Marker blMarker = findMarkerByHSV(scaledBitmap, BL_H_MIN, BL_H_MAX, BL_S_MIN, BL_V_MIN);
+            if (blMarker != null) {
+                boolean duplicate = false;
+                for (Marker m : markers) {
+                    float dx = m.centerX - blMarker.centerX;
+                    float dy = m.centerY - blMarker.centerY;
+
+                    float dxbl = dx;
+                    float dybl = dy;
+
+                    if (Math.hypot(dx, dy) < 10.0f) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate) {
+                    markers.add(blMarker);
+                }
+
+                float avgHbl = blMarker.getAvgH();
+                float avgSbl = blMarker.getAvgS() * 100f;
+                float avgVbl = blMarker.getAvgV() * 100f;
+                Log.d(TAG, String.format("BL (Bottom-Left) foundxBL \u2014 H=%.1f° S=%.0f%% V=%.0f%% at (%.1f,%.1f)",
+                        avgHbl, avgSbl, avgVbl, blMarker.centerX, blMarker.centerY));
+
+
+            } else {
+                Log.d(TAG, "No BL marker found with H in [200,220], S>68%%, V>73%%");
+            }
+
+            // 查找第三个 marker：TR(Top-Right) - S < 20% 且 V 在 30%..65%，H 任意
+            Marker trMarker = findMarkerByHSVRange(scaledBitmap, TR_H_MIN, TR_H_MAX, TR_S_MAX, TR_V_MIN, TR_V_MAX);
+            if (trMarker != null) {
+                boolean duplicate = false;
+                for (Marker m : markers) {
+                    float dx = m.centerX - trMarker.centerX;
+                    float dy = m.centerY - trMarker.centerY;
+
+                    float dxtr = dx;
+                    float dytr = dy;
+
+                    if (Math.hypot(dx, dy) < 10.0f) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate) {
+                    markers.add(trMarker);
+                }
+
+                float avgHtr = trMarker.getAvgH();
+                float avgStr = trMarker.getAvgS() * 100f;
+                float avgVtr = trMarker.getAvgV() * 100f;
+                Log.d(TAG, String.format("TR(Top-Right) foundxTR \u2014 H=%.1f° S=%.0f%% V=%.0f%% at (%.1f,%.1f)",
+                        avgHtr, avgStr, avgVtr, trMarker.centerX, trMarker.centerY));
+            } else {
+                Log.d(TAG, "No TR(Top-Right) marker found (S<20%% and V in 30%%..65%%)");
+            }
+
+            // 新：查找第4个 marker：S < 20% 且 V < 25%，命名为 BR(Bottom-right)
+            Marker brMarker = findMarkerBySAndVUpper(scaledBitmap, BR_S_MAX, BR_V_MAX);
+            if (brMarker != null) {
+                boolean duplicate = false;
+                for (Marker m : markers) {
+                    float dx = m.centerX - brMarker.centerX;
+                    float dy = m.centerY - brMarker.centerY;
+
+                    float dxbr = dx;
+                    float dybr = dy;
+
+                    if (Math.hypot(dx, dy) < 10.0f) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate) {
+                    markers.add(brMarker);
+                }
+
+                float avgHbr = brMarker.getAvgH();
+                float avgSbr = brMarker.getAvgS() * 100f;
+                float avgVbr = brMarker.getAvgV() * 100f;
+                Log.d(TAG, String.format("BR (Bottom-right) foundxBR \u2014 H=%.1f° S=%.0f%% V=%.0f%% at (%.1f,%.1f)",
+                        avgHbr, avgSbr, avgVbr, brMarker.centerX, brMarker.centerY));
+
+
+            } else {
+                Log.d(TAG, "No BR marker found (S<20%% and V<25%%)");
+            }
+
+
+
+
         } else {
             Log.d(TAG, "Found 0 potential markers");
         }
 
-        // 单独用 BL 阈值再找一个 marker（H 200..220, S>0.68, V>0.73）
-        Marker blMarker = findMarkerByHSV(scaledBitmap, BL_H_MIN, BL_H_MAX, BL_S_MIN, BL_V_MIN);
-        if (blMarker != null) {
-            boolean duplicate = false;
-            for (Marker m : markers) {
-                float dx = m.centerX - blMarker.centerX;
-                float dy = m.centerY - blMarker.centerY;
-                if (Math.hypot(dx, dy) < 10.0f) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (!duplicate) {
-                markers.add(blMarker);
-            }
 
-            float avgH = blMarker.getAvgH();
-            float avgS = blMarker.getAvgS() * 100f;
-            float avgV = blMarker.getAvgV() * 100f;
-            Log.d(TAG, String.format("BL found \u2014 H=%.1f° S=%.0f%% V=%.0f%% at (%.1f,%.1f)",
-                    avgH, avgS, avgV, blMarker.centerX, blMarker.centerY));
-
-
-        } else {
-            Log.d(TAG, "No BL marker found with H in [200,220], S>68%%, V>73%%");
-        }
-
-        // 查找第三个 marker：TR(Top-Left) - S < 20% 且 V 在 30%..65%，H 任意
-        Marker trMarker = findMarkerByHSVRange(scaledBitmap, TR_H_MIN, TR_H_MAX, TR_S_MAX, TR_V_MIN, TR_V_MAX);
-        if (trMarker != null) {
-            boolean duplicate = false;
-            for (Marker m : markers) {
-                float dx = m.centerX - trMarker.centerX;
-                float dy = m.centerY - trMarker.centerY;
-                if (Math.hypot(dx, dy) < 10.0f) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (!duplicate) {
-                markers.add(trMarker);
-            }
-
-            float avgH = trMarker.getAvgH();
-            float avgS = trMarker.getAvgS() * 100f;
-            float avgV = trMarker.getAvgV() * 100f;
-            Log.d(TAG, String.format("TR(Top-Left) found \u2014 H=%.1f° S=%.0f%% V=%.0f%% at (%.1f,%.1f)",
-                    avgH, avgS, avgV, trMarker.centerX, trMarker.centerY));
-        } else {
-            Log.d(TAG, "No TR(Top-Left) marker found (S<20%% and V in 30%%..65%%)");
-        }
-
-        // 新：查找第4个 marker：S < 20% 且 V < 25%，命名为 BR(Bottom-right)
-        Marker brMarker = findMarkerBySAndVUpper(scaledBitmap, BR_S_MAX, BR_V_MAX);
-        if (brMarker != null) {
-            boolean duplicate = false;
-            for (Marker m : markers) {
-                float dx = m.centerX - brMarker.centerX;
-                float dy = m.centerY - brMarker.centerY;
-                if (Math.hypot(dx, dy) < 10.0f) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (!duplicate) {
-                markers.add(brMarker);
-            }
-
-            float avgH = brMarker.getAvgH();
-            float avgS = brMarker.getAvgS() * 100f;
-            float avgV = brMarker.getAvgV() * 100f;
-            Log.d(TAG, String.format("BR (Bottom-right) found \u2014 H=%.1f° S=%.0f%% V=%.0f%% at (%.1f,%.1f)",
-                    avgH, avgS, avgV, brMarker.centerX, brMarker.centerY));
-        } else {
-            Log.d(TAG, "No BR marker found (S<20%% and V<25%%)");
-        }
 
         DetectionResult result = new DetectionResult();
         result.markerCount = markers.size();
@@ -228,7 +251,7 @@ public class MarkerDetector {
                         float aspect = wBox / (float) hBox;
                         if (aspect > 0.5f && aspect < 2.0f) {
                             markers.add(m);
-                            Log.d(TAG, String.format("Candidate marker: center=(%.1f,%.1f) w=%d h=%d area=%d H=%.1f S=%.2f V=%.2f",
+                            Log.d(TAG, String.format("Candidate marker foundxTL: center=(%.1f,%.1f) w=%d h=%d area=%d H=%.1f S=%.2f V=%.2f",
                                     m.centerX, m.centerY, wBox, hBox, area, m.getAvgH(), m.getAvgS(), m.getAvgV()));
                         }
                     }
