@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView statusText;
     private Button captureButton;
     private ExecutorService cameraExecutor;
-    private MarkerDetector markerDetector;
+    private GridPatternDetector gridDetector;
 
     private Bitmap lastDetectedBitmap = null;
     private PointF[] lastDetectedCorners = null;
@@ -72,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
         statusText = findViewById(R.id.statusText);
         captureButton = findViewById(R.id.captureButton);
 
-        markerDetector = new MarkerDetector();
+        gridDetector = new GridPatternDetector();
         cameraExecutor = Executors.newSingleThreadExecutor();
 
         captureButton.setVisibility(View.GONE);
@@ -153,27 +153,25 @@ public class MainActivity extends AppCompatActivity {
         Bitmap bitmap = imageProxyToBitmap(image);
 
         if (bitmap != null) {
-            MarkerDetector.DetectionResult result = markerDetector.detectMarkers(bitmap);
+            GridPatternDetector.DetectionResult result = gridDetector.detectGrid(bitmap);
 
             runOnUiThread(() -> {
                 if (result.detected && result.corners != null && result.corners.length == 4) {
-                    statusText.setText(String.format("✓ %d markers detected!", result.markerCount));
-                    statusText.setBackgroundColor(0xDD00FF00);
+                    if (result.isTargetPattern) {
+                        statusText.setText("✓ Target pattern detected!");
+                        statusText.setBackgroundColor(0xDD00FF00);
+                    } else {
+                        statusText.setText("✓ Grid detected (not target pattern)");
+                        statusText.setBackgroundColor(0xDDFFAA00);
+                    }
                     captureButton.setVisibility(View.VISIBLE);
 
                     lastDetectedBitmap = bitmap.copy(bitmap.getConfig(), true);
                     lastDetectedCorners = result.corners;
 
-                    drawDetectionOverlay(bitmap, result.corners, result.markerPositions);
-                } else if (result.markerCount > 0) {
-                    statusText.setText(String.format("Found %d markers (need 3+)", result.markerCount));
-                    statusText.setBackgroundColor(0xDDFFAA00);
-                    captureButton.setVisibility(View.GONE);
-                    if (result.markerPositions != null) {
-                        drawMarkersOnly(bitmap, result.markerPositions);
-                    }
+                    drawDetectionOverlay(bitmap, result.corners, result.samplePoints);
                 } else {
-                    statusText.setText("Searching for corner markers...");
+                    statusText.setText("Searching for grid pattern...");
                     statusText.setBackgroundColor(0x80000000);
                     captureButton.setVisibility(View.GONE);
                     detectionOverlay.setImageBitmap(null);
@@ -257,7 +255,7 @@ public class MainActivity extends AppCompatActivity {
         return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
-    private void drawDetectionOverlay(Bitmap originalBitmap, PointF[] corners, PointF[] markers) {
+    private void drawDetectionOverlay(Bitmap originalBitmap, PointF[] corners, PointF[][] samplePoints) {
         int previewWidth = previewView.getWidth();
         int previewHeight = previewView.getHeight();
 
@@ -297,47 +295,19 @@ public class MainActivity extends AppCompatActivity {
             canvas.drawLine(start.x, start.y, end.x, end.y, paint);
         }
 
-        // Draw detected markers
-        if (markers != null) {
+        // Draw sample points from grid detection
+        if (samplePoints != null) {
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.RED);
-            for (PointF marker : markers) {
-                float mx = marker.x * scale + offsetX;
-                float my = marker.y * scale + offsetY;
-                canvas.drawCircle(mx, my, 12, paint);
+            paint.setColor(Color.CYAN);
+            for (int row = 0; row < samplePoints.length; row++) {
+                for (int col = 0; col < samplePoints[row].length; col++) {
+                    if (samplePoints[row][col] != null) {
+                        float mx = samplePoints[row][col].x * scale + offsetX;
+                        float my = samplePoints[row][col].y * scale + offsetY;
+                        canvas.drawCircle(mx, my, 10, paint);
+                    }
+                }
             }
-        }
-
-        detectionOverlay.setImageBitmap(overlay);
-    }
-
-    private void drawMarkersOnly(Bitmap originalBitmap, PointF[] markers) {
-        int previewWidth = previewView.getWidth();
-        int previewHeight = previewView.getHeight();
-
-        if (previewWidth == 0 || previewHeight == 0) return;
-
-        float scaleX = previewWidth / (float) originalBitmap.getWidth();
-        float scaleY = previewHeight / (float) originalBitmap.getHeight();
-        float scale = Math.min(scaleX, scaleY);
-
-        float scaledWidth = originalBitmap.getWidth() * scale;
-        float scaledHeight = originalBitmap.getHeight() * scale;
-        float offsetX = (previewWidth - scaledWidth) / 2;
-        float offsetY = (previewHeight - scaledHeight) / 2;
-
-        Bitmap overlay = Bitmap.createBitmap(previewWidth, previewHeight, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(overlay);
-
-        Paint paint = new Paint();
-        paint.setAntiAlias(true);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.YELLOW);
-
-        for (PointF marker : markers) {
-            float mx = marker.x * scale + offsetX;
-            float my = marker.y * scale + offsetY;
-            canvas.drawCircle(mx, my, 10, paint);
         }
 
         detectionOverlay.setImageBitmap(overlay);
