@@ -42,6 +42,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import com.pbn.ct9crop.R;
+import android.view.KeyEvent;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "CT9Crop";
@@ -541,8 +542,8 @@ public class MainActivity extends AppCompatActivity {
         return new int[]{(int)(sumR / cnt), (int)(sumG / cnt), (int)(sumB / cnt)};
     }
 
+    // 替换现有的 showRgbInfoDialog 方法，显示 RGB 及对应的 Lab
     private void showRgbInfoDialog(Bitmap bmp) {
-        // 定义 9 个点（以题目给定坐标）
         int[][] points = new int[][] {
                 {175,175}, {175,525}, {175,875},
                 {528,175}, {515,525}, {525,875},
@@ -553,23 +554,28 @@ public class MainActivity extends AppCompatActivity {
         StringBuilder sb = new StringBuilder();
         sb.append("9 positions RGB (avg 30x30):\n");
         for (int i = 0; i < points.length; i++) {
-            int cx = points[i][0];
-            int cy = points[i][1];
-            // 如果点超出位图范围，使用 clamp（使方法安全）
-            cx = Math.max(0, Math.min(cx, bmp.getWidth() - 1));
-            cy = Math.max(0, Math.min(cy, bmp.getHeight() - 1));
+            int origX = points[i][0];
+            int origY = points[i][1];
+            int cx = Math.max(0, Math.min(origX, bmp.getWidth() - 1));
+            int cy = Math.max(0, Math.min(origY, bmp.getHeight() - 1));
             int[] rgb = averageRgbInRegion(bmp, cx, cy, regionHalf);
-            sb.append(String.format("(%d,%d): R=%d G=%d B=%d\n", points[i][0], points[i][1], rgb[0], rgb[1], rgb[2]));
+
+            double[] lab = displayP3RgbToLab(rgb[0], rgb[1], rgb[2]);
+            sb.append(String.format(Locale.US, "(%d,%d): R=%d G=%d B=%d  →  L=%.1f a=%.1f b=%.1f\n",
+                    origX, origY, rgb[0], rgb[1], rgb[2], lab[0], lab[1], lab[2]));
         }
 
         int[] topAvg = averageTopBrightest(bmp, 30);
-        sb.append(String.format("\nAverage of top 30 brightest pixels:\nR=%d G=%d B=%d", topAvg[0], topAvg[1], topAvg[2]));
+        double[] topLab = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
+        sb.append(String.format(Locale.US,
+                "\nAverage of top 30 brightest pixels:\nR=%d G=%d B=%d  →  L=%.1f a=%.1f b=%.1f",
+                topAvg[0], topAvg[1], topAvg[2], topLab[0], topLab[1], topLab[2]));
 
         final String message = sb.toString();
 
         runOnUiThread(() -> {
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Captured Image RGB Info")
+                    .setTitle("Captured Image RGB & Lab")
                     .setMessage(message)
                     .setPositiveButton("OK", (d, w) -> d.dismiss())
                     .show();
@@ -582,6 +588,70 @@ public class MainActivity extends AppCompatActivity {
     showRgbInfoDialog(croppedBitmap);
     saveImage(croppedBitmap);
 */
+@Override
+public boolean onKeyDown(int keyCode, KeyEvent event) {
+    if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+        // 如果按钮可用，使用 performClick 保持相同的 UI 行为；否则直接调用 captureImage()
+        if (captureButton != null && captureButton.isEnabled()) {
+            captureButton.performClick();
+        } else {
+            captureImage();
+        }
+        return true; // 拦截系统音量按键
+    }
+    return super.onKeyDown(keyCode, event);
+}
+
+    // 添加：sRGB/DisplayP3 反伽马（OETF） -> 线性值
+    private double srgbToLinear(double c) {
+        if (c <= 0.04045) return c / 12.92;
+        return Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    // 添加：XYZ -> f(t) 用于 Lab 计算
+    private double labF(double t) {
+        final double delta = 6.0 / 29.0;
+        if (t > Math.pow(delta, 3)) {
+            return Math.cbrt(t);
+        } else {
+            return t / (3 * delta * delta) + 4.0 / 29.0;
+        }
+    }
+
+    // 添加：Display P3 (D65) 线性 RGB -> CIE L*a*b*
+    private double[] displayP3RgbToLab(int r, int g, int b) {
+        // 归一化到 0..1
+        double R = r / 255.0;
+        double G = g / 255.0;
+        double B = b / 255.0;
+
+        // 反伽马 -> 线性 RGB（DisplayP3 使用与 sRGB 相同的 OETF）
+        double lr = srgbToLinear(R);
+        double lg = srgbToLinear(G);
+        double lb = srgbToLinear(B);
+
+        // Display P3 (D65) 线性 RGB -> XYZ 矩阵
+        // 来源常见 DisplayP3->XYZ (D65)
+        double X = 0.4865709486482162 * lr + 0.26566769316909306 * lg + 0.1982172852343625 * lb;
+        double Y = 0.2289745640697488 * lr + 0.6917385218365064 * lg + 0.079286914093745 * lb;
+        double Z = 0.0 * lr + 0.04511338185890264 * lg + 1.043944368900976 * lb;
+
+        // 参考白点 D65 （Y=1）
+        double Xn = 0.95047;
+        double Yn = 1.00000;
+        double Zn = 1.08883;
+
+        double fx = labF(X / Xn);
+        double fy = labF(Y / Yn);
+        double fz = labF(Z / Zn);
+
+        double L = 116.0 * fy - 16.0;
+        double a = 500.0 * (fx - fy);
+        double bb = 200.0 * (fy - fz);
+
+        return new double[]{L, a, bb};
+    }
+
 
 
     @Override
