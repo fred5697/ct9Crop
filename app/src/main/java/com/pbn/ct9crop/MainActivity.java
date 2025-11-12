@@ -2,6 +2,7 @@
 package com.pbn.ct9crop;
 
 import android.Manifest;
+import android.content.ContentValues;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -12,8 +13,11 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.YuvImage;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -35,6 +39,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -193,14 +198,32 @@ public class MainActivity extends AppCompatActivity {
 
 
     private boolean checkPermissions() {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+        boolean cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
+        
+        // WRITE_EXTERNAL_STORAGE only needed for Android 9 and below
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            boolean storageGranted = ContextCompat.checkSelfPermission(this, 
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+            return cameraGranted && storageGranted;
+        }
+        
+        return cameraGranted;
     }
 
     private void requestPermissions() {
-        ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.CAMERA},
-                PERMISSION_REQUEST_CODE);
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{
+                        Manifest.permission.CAMERA,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    },
+                    PERMISSION_REQUEST_CODE);
+        } else {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.CAMERA},
+                    PERMISSION_REQUEST_CODE);
+        }
     }
 
     @Override
@@ -375,40 +398,134 @@ public class MainActivity extends AppCompatActivity {
 
     private void saveImage(Bitmap bitmap) {
         try {
-            File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
-            File ct9Dir = new File(picturesDir, "CT9Crop");
-            if (!ct9Dir.exists()) {
-                ct9Dir.mkdirs();
-            }
-
             String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
             String fileName = "CT9_Grid_" + timeStamp + ".jpg";
-            File imageFile = new File(ct9Dir, fileName);
+            
+            // For Android 10 (API 29) and above, use MediaStore
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                saveImageUsingMediaStore(bitmap, fileName);
+            } else {
+                // For Android 9 and below, use legacy file approach
+                saveImageUsingFile(bitmap, fileName);
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving image", e);
+            runOnUiThread(() -> {
+                Toast.makeText(this, "Save failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                resetCaptureButton();
+            });
+        }
+    }
 
-            FileOutputStream out = new FileOutputStream(imageFile);
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
-            out.flush();
-            out.close();
-
+    private void saveImageUsingMediaStore(Bitmap bitmap, String fileName) {
+        try {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            
+            // For Android 10+, use RELATIVE_PATH to specify Pictures/CT9Crop
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, 
+                    Environment.DIRECTORY_PICTURES + "/CT9Crop");
+            }
+            
+            // Insert the image and get a URI
+            Uri uri = getContentResolver().insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            
+            if (uri == null) {
+                throw new Exception("Failed to create MediaStore entry");
+            }
+            
+            // Write the bitmap to the URI
+            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out == null) {
+                    throw new Exception("Failed to open output stream");
+                }
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
+                out.flush();
+            }
+            
             runOnUiThread(() -> {
                 Toast.makeText(this, "Saved: " + fileName, Toast.LENGTH_LONG).show();
                 statusText.setText("✓ Captured! Ready for next");
                 statusText.setBackgroundColor(0xDD00FF00);
-
+                
                 captureButton.setText("✓ SAVED");
                 captureButton.postDelayed(() -> {
                     captureButton.setText("CAPTURE");
                     statusText.setText("Align 3x3 grid in frame");
                     statusText.setBackgroundColor(0x80000000);
                 }, 1500);
-
+                
                 resetCaptureButton();
             });
-
-            Log.d(TAG, "Image saved: " + imageFile.getAbsolutePath());
-
+            
+            Log.d(TAG, "Image saved via MediaStore: " + fileName);
+            
         } catch (Exception e) {
-            Log.e(TAG, "Error saving image", e);
+            Log.e(TAG, "Error saving via MediaStore", e);
+            runOnUiThread(() -> {
+                Toast.makeText(this, "Save failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                resetCaptureButton();
+            });
+        }
+    }
+
+    private void saveImageUsingFile(Bitmap bitmap, String fileName) {
+        try {
+            // Check permission for Android 9 and below
+            if (ContextCompat.checkSelfPermission(this, 
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "Storage permission required", Toast.LENGTH_SHORT).show();
+                    resetCaptureButton();
+                });
+                return;
+            }
+            
+            File picturesDir = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_PICTURES);
+            File ct9Dir = new File(picturesDir, "CT9Crop");
+            
+            if (!ct9Dir.exists()) {
+                boolean created = ct9Dir.mkdirs();
+                if (!created) {
+                    throw new Exception("Failed to create directory: " + ct9Dir.getAbsolutePath());
+                }
+            }
+            
+            File imageFile = new File(ct9Dir, fileName);
+            
+            try (FileOutputStream out = new FileOutputStream(imageFile)) {
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
+                out.flush();
+            }
+            
+            // Notify media scanner about the new file
+            android.media.MediaScannerConnection.scanFile(this,
+                new String[]{imageFile.getAbsolutePath()}, null, null);
+            
+            runOnUiThread(() -> {
+                Toast.makeText(this, "Saved: " + fileName, Toast.LENGTH_LONG).show();
+                statusText.setText("✓ Captured! Ready for next");
+                statusText.setBackgroundColor(0xDD00FF00);
+                
+                captureButton.setText("✓ SAVED");
+                captureButton.postDelayed(() -> {
+                    captureButton.setText("CAPTURE");
+                    statusText.setText("Align 3x3 grid in frame");
+                    statusText.setBackgroundColor(0x80000000);
+                }, 1500);
+                
+                resetCaptureButton();
+            });
+            
+            Log.d(TAG, "Image saved via File: " + imageFile.getAbsolutePath());
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving via File", e);
             runOnUiThread(() -> {
                 Toast.makeText(this, "Save failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 resetCaptureButton();
