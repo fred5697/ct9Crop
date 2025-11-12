@@ -107,7 +107,11 @@ public class MarkerDetector {
             }
 
             // 查找第三个 marker：TR(Top-Right) - S < 20% 且 V 在 30%..65%，H 任意
-            Marker trMarker = findMarkerByHSVRange(scaledBitmap, TR_H_MIN, TR_H_MAX, TR_S_MAX, TR_V_MIN, TR_V_MAX);
+            Marker trMarker = null;
+
+                //Marker tl = markers.get(0);
+                trMarker = findMarkerByHSVRangeRightOf(scaledBitmap, TR_H_MIN, TR_H_MAX, TR_S_MAX, TR_V_MIN, TR_V_MAX, tl.centerX);
+
             if (trMarker != null) {
                 boolean duplicate = false;
                 for (Marker m : markers) {
@@ -324,6 +328,46 @@ public class MarkerDetector {
                     int area = m.size;
                     if (wBox >= MIN_MARKER_DIM && hBox >= MIN_MARKER_DIM && area >= MIN_MARKER_AREA) {
                         return m;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+
+    // 将下面方法加入类中（例如在现有的 findMarkerByHSVRange 方法之后）
+    private Marker findMarkerByHSVRangeRightOf(Bitmap bitmap, float hMin, float hMax, float sMax, float vMin, float vMax, float minCenterX) {
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        boolean[][] mask = new boolean[height][width];
+        float[] hsv = new float[3];
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int px = bitmap.getPixel(x, y);
+                Color.colorToHSV(px, hsv);
+                float H = hsv[0], S = hsv[1], V = hsv[2];
+                boolean match = (H >= hMin && H <= hMax) && (S <= sMax) && (V >= vMin && V <= vMax);
+                mask[y][x] = match;
+            }
+        }
+
+        boolean[][] visited = new boolean[height][width];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (mask[y][x] && !visited[y][x]) {
+                    Marker m = floodFill(mask, visited, x, y, width, height, bitmap);
+                    int wBox = m.maxX - m.minX + 1;
+                    int hBox = m.maxY - m.minY + 1;
+                    int area = m.size;
+                    if (wBox >= MIN_MARKER_DIM && hBox >= MIN_MARKER_DIM && area >= MIN_MARKER_AREA) {
+                        // 额外约束：中心 X 必须大于给定的 minCenterX（即位于指定标记右侧）
+                        if (m.centerX > minCenterX) {
+                            return m;
+                        }
+                        // 否则继续寻找下一个连通域
                     }
                 }
             }
