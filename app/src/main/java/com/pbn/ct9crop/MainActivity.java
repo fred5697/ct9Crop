@@ -152,8 +152,8 @@ public class MainActivity extends AppCompatActivity {
         canvas.drawLine(centerX - crossSize, centerY, centerX + crossSize, centerY, borderPaint);
         canvas.drawLine(centerX, centerY - crossSize, centerX, centerY + crossSize, borderPaint);
 
-        // --- 新增：绘制第二个内框，向四边内缩 50 px ---
-        final int inset = 80;
+        // --- 新增：绘制第二个内框，向四边内缩 100 px ---
+        final int inset = 100;
         int innerLeft = left + inset;
         int innerTop = top + inset;
         int innerSize = frameSize - inset * 2;
