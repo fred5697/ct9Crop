@@ -367,9 +367,51 @@ public class MainActivity extends AppCompatActivity {
         }
 
         Bitmap croppedBitmap = Bitmap.createBitmap(bitmap, cropLeft, cropTop, cropSize, cropSize);
-        showRgbInfoDialog(croppedBitmap);
+        // 修改 processCapturedImage 中裁切後的處理：
+// 把最後一段 showRgbInfoDialog(croppedBitmap); saveImage(croppedBitmap);
+// 替換為下列流程（直接貼入 processCapturedImage 的 croppedBitmap 生成後）：
 
-        saveImage(croppedBitmap);
+        if (pendingCapturedCropped == null) {
+            // 第一張已拍，提示使用者翻轉裝置並再次拍攝
+            pendingCapturedCropped = croppedBitmap; // 儲存第一張（已裁切）
+            runOnUiThread(() -> {
+                new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Please capture 2nd image")
+                        .setMessage("請將裝置或被攝物件旋轉 180°，然後再次按下 CAPTURE。\n\n第一張已暫存。")
+                        .setPositiveButton("OK", (d, w) -> {
+                            d.dismiss();
+                            statusText.setText("Rotate 180° and capture 2nd");
+                            statusText.setBackgroundColor(0xDDFFAA00);
+                            resetCaptureButton();
+                        })
+                        .setCancelable(false)
+                        .show();
+            });
+        } else {
+            // 第二張已拍，進行平均、顯示並儲存
+            final Bitmap bmpA = pendingCapturedCropped;
+            final Bitmap bmpB = croppedBitmap;
+
+            // 顯示兩張配對平均的數據（使用已有方法）
+            showRgbInfoDialogDoubleCapture(bmpA, bmpB);
+
+            // 產生像素平均圖並儲存
+            Bitmap avgBmp = averageBitmaps(bmpA, bmpB);
+            if (avgBmp != null) {
+                saveImage(avgBmp);
+            }
+
+            // 清除暫存並回復 UI
+            if (!bmpA.isRecycled()) bmpA.recycle();
+            pendingCapturedCropped = null;
+
+            runOnUiThread(() -> {
+                statusText.setText("Align 3x3 grid in frame");
+                statusText.setBackgroundColor(0x80000000);
+                resetCaptureButton();
+            });
+        }
+
     }
 
 
@@ -576,7 +618,7 @@ public class MainActivity extends AppCompatActivity {
         double[] topLabD50 = labD65ToLabD50(topLabD65[0], topLabD65[1], topLabD65[2]);
 
         sb.append(String.format(Locale.US,
-                "\nAverage of top 30 brightest pixels:\nR=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f",
+                "\nAverage of top 30 brightest pixels:\nR=%d G=%d B=%d  →  L(D50x)=%.1f a(D50)=%.1f b(D50)=%.1f",
                 topAvg[0], topAvg[1], topAvg[2], topLabD50[0], topLabD50[1], topLabD50[2]));
 
         final String message = sb.toString();
@@ -751,6 +793,96 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         r[1] = m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2];
         r[2] = m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2];
         return r;
+    }
+
+
+    // 新增：對兩張顛倒拍攝的圖像，對應點配對平均後顯示 D50 Lab
+    private void showRgbInfoDialogDoubleCapture(Bitmap bmpA, Bitmap bmpB) {
+        if (bmpA == null || bmpB == null) return;
+
+        int[][] points = new int[][] {
+                {175,175}, {175,525}, {175,875},
+                {528,175}, {515,525}, {525,875},
+                {875,175}, {875,525}, {875,875}
+        };
+        final int regionHalf = 15; // 30x30
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("9 positions averaged from two captures (A + B\u2192avg):\n");
+
+        for (int i = 0; i < points.length; i++) {
+            int flip = 8 - i; // 180° 對應
+            // clamp coordinates 到各自圖片內
+            int ax = Math.max(0, Math.min(points[i][0], bmpA.getWidth() - 1));
+            int ay = Math.max(0, Math.min(points[i][1], bmpA.getHeight() - 1));
+            int bx = Math.max(0, Math.min(points[flip][0], bmpB.getWidth() - 1));
+            int by = Math.max(0, Math.min(points[flip][1], bmpB.getHeight() - 1));
+
+            int[] rgbA = averageRgbInRegion(bmpA, ax, ay, regionHalf);
+            int[] rgbB = averageRgbInRegion(bmpB, bx, by, regionHalf);
+
+            int avgR = (rgbA[0] + rgbB[0]) / 2;
+            int avgG = (rgbA[1] + rgbB[1]) / 2;
+            int avgB = (rgbA[2] + rgbB[2]) / 2;
+
+            double[] labD65 = displayP3RgbToLab(avgR, avgG, avgB);
+            double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
+
+            sb.append(String.format(Locale.US,
+                    "pos %d (A@%d,%d + B@%d,%d) → R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    i, ax, ay, bx, by, avgR, avgG, avgB, labD50[0], labD50[1], labD50[2]));
+        }
+
+        runOnUiThread(() -> {
+            new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Averaged RGB & Lab (D50)")
+                    .setMessage(sb.toString())
+                    .setPositiveButton("OK", (d,w) -> d.dismiss())
+                    .show();
+        });
+    }
+
+    // 在 MainActivity 類的成員區新增：
+    private Bitmap pendingCapturedCropped = null;
+
+
+    // 新增：像素逐點平均兩張同尺寸 Bitmap（若尺寸不同嘗試裁切到相同大小）
+    private Bitmap averageBitmaps(Bitmap a, Bitmap b) {
+        if (a == null || b == null) return null;
+
+        int w = Math.min(a.getWidth(), b.getWidth());
+        int h = Math.min(a.getHeight(), b.getHeight());
+
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+
+        int[] pixelsA = new int[w];
+        int[] pixelsB = new int[w];
+        int[] outPixels = new int[w];
+
+        for (int y = 0; y < h; y++) {
+            a.getPixels(pixelsA, 0, w, 0, y, w, 1);
+            b.getPixels(pixelsB, 0, w, 0, y, w, 1);
+            for (int x = 0; x < w; x++) {
+                int pa = pixelsA[x];
+                int pb = pixelsB[x];
+
+                int ra = (pa >> 16) & 0xFF;
+                int ga = (pa >> 8) & 0xFF;
+                int ba = pa & 0xFF;
+
+                int rb = (pb >> 16) & 0xFF;
+                int gb = (pb >> 8) & 0xFF;
+                int bb = pb & 0xFF;
+
+                int r = (ra + rb) / 2;
+                int g = (ga + gb) / 2;
+                int bch = (ba + bb) / 2;
+
+                outPixels[x] = 0xFF000000 | (r << 16) | (g << 8) | bch;
+            }
+            out.setPixels(outPixels, 0, w, 0, y, w, 1);
+        }
+        return out;
     }
 
     @Override
