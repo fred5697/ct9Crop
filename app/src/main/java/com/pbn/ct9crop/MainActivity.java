@@ -797,6 +797,8 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
 
     // 新增：對兩張顛倒拍攝的圖像，對應點配對平均後顯示 D50 Lab
+
+    // 修改後：對兩張顛倒拍攝的圖像，對應點配對平均後顯示 D50 Lab，並附加 top30 最亮像素平均（白參考）
     private void showRgbInfoDialogDoubleCapture(Bitmap bmpA, Bitmap bmpB) {
         if (bmpA == null || bmpB == null) return;
 
@@ -833,6 +835,20 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                     i, ax, ay, bx, by, avgR, avgG, avgB, labD50[0], labD50[1], labD50[2]));
         }
 
+        // 新增：產生兩張影像的像素平均圖，並計算 top30 最亮像素平均作為白參考
+        Bitmap avgBmp = averageBitmaps(bmpA, bmpB);
+        if (avgBmp != null) {
+            int[] topAvg = averageTopBrightest(avgBmp, 30);
+            double[] topLabD65 = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
+            double[] topLabD50 = labD65ToLabD50(topLabD65[0], topLabD65[1], topLabD65[2]);
+
+            sb.append(String.format(Locale.US,
+                    "\nAverage of top 30 brightest pixels (avg image):\nR=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    topAvg[0], topAvg[1], topAvg[2], topLabD50[0], topLabD50[1], topLabD50[2]));
+
+            if (!avgBmp.isRecycled()) avgBmp.recycle();
+        }
+
         runOnUiThread(() -> {
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
                     .setTitle("Averaged RGB & Lab (D50)")
@@ -841,6 +857,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                     .show();
         });
     }
+
 
     // 在 MainActivity 類的成員區新增：
     private Bitmap pendingCapturedCropped = null;
