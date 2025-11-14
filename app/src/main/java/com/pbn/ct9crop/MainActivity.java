@@ -543,6 +543,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // 替换现有的 showRgbInfoDialog 方法，显示 RGB 及对应的 Lab
+    // 替换现有的 showRgbInfoDialog 方法为下列实现（显示 D50 Lab），并在类中添加 labD65ToLabD50 / labFinvSafe / mulMatVec 方法。
+
     private void showRgbInfoDialog(Bitmap bmp) {
         int[][] points = new int[][] {
                 {175,175}, {175,525}, {175,875},
@@ -560,22 +562,28 @@ public class MainActivity extends AppCompatActivity {
             int cy = Math.max(0, Math.min(origY, bmp.getHeight() - 1));
             int[] rgb = averageRgbInRegion(bmp, cx, cy, regionHalf);
 
-            double[] lab = displayP3RgbToLab(rgb[0], rgb[1], rgb[2]);
-            sb.append(String.format(Locale.US, "(%d,%d): R=%d G=%d B=%d  →  L=%.1f a=%.1f b=%.1f\n",
-                    origX, origY, rgb[0], rgb[1], rgb[2], lab[0], lab[1], lab[2]));
+            // 先得到 D65 Lab，再转换为 D50 Lab
+            double[] labD65 = displayP3RgbToLab(rgb[0], rgb[1], rgb[2]);
+            double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
+
+            sb.append(String.format(Locale.US,
+                    "(%d,%d): R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    origX, origY, rgb[0], rgb[1], rgb[2], labD50[0], labD50[1], labD50[2]));
         }
 
         int[] topAvg = averageTopBrightest(bmp, 30);
-        double[] topLab = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
+        double[] topLabD65 = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
+        double[] topLabD50 = labD65ToLabD50(topLabD65[0], topLabD65[1], topLabD65[2]);
+
         sb.append(String.format(Locale.US,
-                "\nAverage of top 30 brightest pixels:\nR=%d G=%d B=%d  →  L=%.1f a=%.1f b=%.1f",
-                topAvg[0], topAvg[1], topAvg[2], topLab[0], topLab[1], topLab[2]));
+                "\nAverage of top 30 brightest pixels:\nR=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f",
+                topAvg[0], topAvg[1], topAvg[2], topLabD50[0], topLabD50[1], topLabD50[2]));
 
         final String message = sb.toString();
 
         runOnUiThread(() -> {
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Captured Image RGB & Lab")
+                    .setTitle("Captured Image RGB & Lab (D50)")
                     .setMessage(message)
                     .setPositiveButton("OK", (d, w) -> d.dismiss())
                     .show();
@@ -652,7 +660,98 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         return new double[]{L, a, bb};
     }
 
+// java
+// 添加到 MainActivity.java
 
+    // 将 CIE L*a*b* (D65) 转为 CIE L*a*b* (D50)（Bradford 适配）
+    private double[] labD65ToLabD50(double L, double a, double b) {
+        // 参考白点
+        final double Xn_D65 = 0.95047;
+        final double Yn = 1.0;
+        final double Zn_D65 = 1.08883;
+
+        final double Xn_D50 = 0.96422;
+        final double Zn_D50 = 0.82521;
+
+        // Lab (D65) -> XYZ (D65)
+        double fy = (L + 16.0) / 116.0;
+        double fx = fy + (a / 500.0);
+        double fz = fy - (b / 200.0);
+
+        double xr = labFinvSafe(fx);
+        double yr = labFinvSafe(fy);
+        double zr = labFinvSafe(fz);
+
+        double Xd65 = xr * Xn_D65;
+        double Yd65 = yr * Yn;
+        double Zd65 = zr * Zn_D65;
+
+        // Bradford adaptation matrices
+        double[][] M = {
+                {0.8951000,  0.2664000, -0.1614000},
+                {-0.7502000, 1.7135000,  0.0367000},
+                {0.0389000, -0.0685000,  1.0296000}
+        };
+        double[][] M_INV = {
+                { 0.9869929, -0.1470543,  0.1599627},
+                { 0.4323053,  0.5183603,  0.0492912},
+                {-0.0085287,  0.0400428,  0.9684867}
+        };
+
+        // convert source and destination white to cone response domain
+        double[] srcWhiteCone = mulMatVec(M, new double[]{Xn_D65, Yn, Zn_D65});
+        double[] dstWhiteCone = mulMatVec(M, new double[]{Xn_D50, Yn, Zn_D50});
+
+        // convert XYZ (D65) to cone responses
+        double[] cone = mulMatVec(M, new double[]{Xd65, Yd65, Zd65});
+
+        // scale in cone domain
+        double[] scale = new double[3];
+        for (int i = 0; i < 3; i++) {
+            scale[i] = srcWhiteCone[i] == 0.0 ? 1.0 : (dstWhiteCone[i] / srcWhiteCone[i]);
+        }
+        double[] adaptedCone = new double[3];
+        for (int i = 0; i < 3; i++) adaptedCone[i] = cone[i] * scale[i];
+
+        // back to XYZ (D50)
+        double[] adaptedXYZ = mulMatVec(M_INV, adaptedCone);
+        double Xd50 = adaptedXYZ[0];
+        double Yd50 = adaptedXYZ[1];
+        double Zd50 = adaptedXYZ[2];
+
+        // XYZ (D50) -> Lab (D50)
+       // final double Xn_D50 = 0.96422;
+        final double Zn_D50_CONST = 0.82521;
+
+        double fx2 = labF(Xd50 / Xn_D50);
+        double fy2 = labF(Yd50 / Yn);
+        double fz2 = labF(Zd50 / Zn_D50_CONST);
+
+        double L2 = 116.0 * fy2 - 16.0;
+        double a2 = 500.0 * (fx2 - fy2);
+        double b2 = 200.0 * (fy2 - fz2);
+
+        return new double[]{L2, a2, b2};
+    }
+
+    // 安全版 lab f^{-1}（用于 Lab -> XYZ）
+    private double labFinvSafe(double f) {
+        final double delta = 6.0 / 29.0;
+        if (f > delta) {
+            return f * f * f;
+        } else {
+            return 3.0 * delta * delta * (f - 4.0 / 29.0);
+        }
+    }
+
+    // 矩阵乘向量 (3x3 * 3x1)
+    private double[] mulMatVec(double[][] m, double[] v) {
+        double[] r = new double[3];
+        r[0] = m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2];
+        r[1] = m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2];
+        r[2] = m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2];
+        return r;
+    }
 
     @Override
     protected void onDestroy() {
