@@ -883,35 +883,37 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
     // 輔助：對 avgList 做以 brightest white 為參考的正規化，並顯示第二個對話視窗
     // java
+    // 替換原有的 showNormalizedResultsDialog 方法為下列實作（同時儲存每個位置的 Lab(D50) 並在按 OK 後顯示 Delta-E 2000 結果）
     private void showNormalizedResultsDialog(int[][] avgList, int[] topAvg) {
         if (avgList == null || avgList.length == 0) return;
 
-        // 目標白色（修正：B = 236）
+        // 目標白色（B = 236）
         final double targetR = 233.0;
         final double targetG = 231.0;
         final double targetB = 236.0;
 
-        // 計算通道放大係數（避開除以 0）
-        double scaleR = topAvg[0] > 0 ? (targetR / (double) topAvg[0]) : 1.0;
-        double scaleG = topAvg[1] > 0 ? (targetG / (double) topAvg[1]) : 1.0;
-        double scaleB = topAvg[2] > 0 ? (targetB / (double) topAvg[2]) : 1.0;
+        double[] scale = new double[3];
+        scale[0] = topAvg[0] > 0 ? (targetR / (double) topAvg[0]) : 1.0;
+        scale[1] = topAvg[1] > 0 ? (targetG / (double) topAvg[1]) : 1.0;
+        scale[2] = topAvg[2] > 0 ? (targetB / (double) topAvg[2]) : 1.0;
 
         StringBuilder nsb = new StringBuilder();
         nsb.append("Normalized results (white mapped to ");
         nsb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f", targetR, targetG, targetB));
         nsb.append(")\n\n");
 
-        // 正規化每個位置（只 clamp 到 0..255）
+        // 存放每個位置正規化後的 Lab(D50)
+        double[][] normalizedLabs = new double[avgList.length][3];
+
         for (int i = 0; i < avgList.length; i++) {
             int orR = avgList[i][0];
             int orG = avgList[i][1];
             int orB = avgList[i][2];
 
-            int nR = (int) Math.round(orR * scaleR);
-            int nG = (int) Math.round(orG * scaleG);
-            int nB = (int) Math.round(orB * scaleB);
+            int nR = (int) Math.round(orR * scale[0]);
+            int nG = (int) Math.round(orG * scale[1]);
+            int nB = (int) Math.round(orB * scale[2]);
 
-            // 僅保證 0..255
             nR = Math.max(0, Math.min(255, nR));
             nG = Math.max(0, Math.min(255, nG));
             nB = Math.max(0, Math.min(255, nB));
@@ -919,15 +921,19 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             double[] labD65 = displayP3RgbToLab(nR, nG, nB);
             double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
 
+            normalizedLabs[i][0] = labD50[0];
+            normalizedLabs[i][1] = labD50[1];
+            normalizedLabs[i][2] = labD50[2];
+
             nsb.append(String.format(Locale.US,
                     "pos %d -> R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
                     i, nR, nG, nB, labD50[0], labD50[1], labD50[2]));
         }
 
         // 顯示正規化後的白參考值（經同樣縮放）
-        int whiteR = (int) Math.round(topAvg[0] * scaleR);
-        int whiteG = (int) Math.round(topAvg[1] * scaleG);
-        int whiteB = (int) Math.round(topAvg[2] * scaleB);
+        int whiteR = (int) Math.round(topAvg[0] * scale[0]);
+        int whiteG = (int) Math.round(topAvg[1] * scale[1]);
+        int whiteB = (int) Math.round(topAvg[2] * scale[2]);
         whiteR = Math.max(0, Math.min(255, whiteR));
         whiteG = Math.max(0, Math.min(255, whiteG));
         whiteB = Math.max(0, Math.min(255, whiteB));
@@ -940,17 +946,135 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                 "R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
                 whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
 
-        final String message = nsb.toString();
+        final double[][] finalNormalizedLabs = normalizedLabs;
 
         runOnUiThread(() -> {
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
                     .setTitle("Normalized RGB & Lab (D50)")
-                    .setMessage(message)
+                    .setMessage(nsb.toString())
+                    .setPositiveButton("OK", (d, w) -> {
+                        d.dismiss();
+                        // 按下 OK 後顯示第三個對話視窗（Delta-E 2000）
+                        showDeltaEResultsDialog(finalNormalizedLabs);
+                    })
+                    .show();
+        });
+    }
+
+    // 新增：計算並顯示 Delta-E 2000（pos2→Cyan, pos5→Magenta, pos0→Yellow, pos8→Black）
+// 改寫過的 showDeltaEResultsDialog，使用 safeLabAt 而非 IntFunction.apply
+    private void showDeltaEResultsDialog(double[][] normalizedLabs) {
+        if (normalizedLabs == null) return;
+
+        // 參考 Lab (D50)
+        double[] cyanRef = new double[]{56.0, -37.0, -50.0};
+        double[] magRef  = new double[]{48.0,  75.0,  -4.0};
+        double[] yelRef  = new double[]{89.0,  -4.0,  93.0};
+        double[] blkRef  = new double[]{16.0,  0.1,   0.1};
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Delta-E 2000 results:\n\n");
+
+        double dePos2 = deltaE2000(safeLabAt(normalizedLabs, 2), cyanRef);
+        double dePos5 = deltaE2000(safeLabAt(normalizedLabs, 5), magRef);
+        double dePos0 = deltaE2000(safeLabAt(normalizedLabs, 0), yelRef);
+        double dePos8 = deltaE2000(safeLabAt(normalizedLabs, 8), blkRef);
+
+        sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2));
+        sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5));
+        sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0));
+        sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8));
+
+        runOnUiThread(() -> {
+            new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Delta-E 2000")
+                    .setMessage(sb.toString())
                     .setPositiveButton("OK", (d, w) -> d.dismiss())
                     .show();
         });
     }
 
+    // 新增：Delta-E 2000 實作（接受兩個 Lab {L,a,b}，回傳 ΔE00）
+    private double deltaE2000(double[] lab1, double[] lab2) {
+        // 參考實作來源：CIEDE2000 演算法
+        double L1 = lab1[0], a1 = lab1[1], b1 = lab1[2];
+        double L2 = lab2[0], a2 = lab2[1], b2 = lab2[2];
+
+        double avgLp = (L1 + L2) / 2.0;
+        double C1 = Math.hypot(a1, b1);
+        double C2 = Math.hypot(a2, b2);
+        double avgC = (C1 + C2) / 2.0;
+
+        double pow7 = Math.pow(avgC, 7);
+        double G = 0.5 * (1 - Math.sqrt( pow7 / (pow7 + Math.pow(25.0, 7)) ));
+
+        double a1p = a1 * (1 + G);
+        double a2p = a2 * (1 + G);
+
+        double C1p = Math.hypot(a1p, b1);
+        double C2p = Math.hypot(a2p, b2);
+        double avgCp = (C1p + C2p) / 2.0;
+
+        double h1p = Math.atan2(b1, a1p);
+        if (h1p < 0) h1p += 2.0 * Math.PI;
+        double h2p = Math.atan2(b2, a2p);
+        if (h2p < 0) h2p += 2.0 * Math.PI;
+
+        double dLp = L2 - L1;
+        double dCp = C2p - C1p;
+
+        double dhp;
+        if (C1p * C2p == 0) {
+            dhp = 0;
+        } else {
+            double diff = h2p - h1p;
+            if (Math.abs(diff) <= Math.PI) {
+                dhp = diff;
+            } else if (diff > Math.PI) {
+                dhp = diff - 2.0 * Math.PI;
+            } else {
+                dhp = diff + 2.0 * Math.PI;
+            }
+        }
+        double dHp = 2.0 * Math.sqrt(Math.max(0.0, C1p * C2p)) * Math.sin(dhp / 2.0);
+
+        double avgHp;
+        if (C1p * C2p == 0) {
+            avgHp = h1p + h2p;
+        } else {
+            double diff = Math.abs(h1p - h2p);
+            if (diff > Math.PI) {
+                avgHp = (h1p + h2p + 2.0 * Math.PI) / 2.0;
+            } else {
+                avgHp = (h1p + h2p) / 2.0;
+            }
+        }
+
+        double avgHpDeg = Math.toDegrees(avgHp);
+
+        double T = 1.0
+                - 0.17 * Math.cos(Math.toRadians(avgHpDeg - 30.0))
+                + 0.24 * Math.cos(Math.toRadians(2.0 * avgHpDeg))
+                + 0.32 * Math.cos(Math.toRadians(3.0 * avgHpDeg + 6.0))
+                - 0.20 * Math.cos(Math.toRadians(4.0 * avgHpDeg - 63.0));
+
+        double deltaTheta = 30.0 * Math.exp(- Math.pow((avgHpDeg - 275.0) / 25.0, 2.0));
+        double Rc = 2.0 * Math.sqrt( Math.pow(avgCp, 7.0) / ( Math.pow(avgCp, 7.0) + Math.pow(25.0, 7.0) ) );
+        double Rt = - Math.sin(Math.toRadians(2.0 * deltaTheta)) * Rc;
+
+        double Sl = 1.0 + ( (0.015 * Math.pow(avgLp - 50.0, 2.0)) / Math.sqrt(20.0 + Math.pow(avgLp - 50.0, 2.0)) );
+        double Sc = 1.0 + 0.045 * avgCp;
+        double Sh = 1.0 + 0.015 * avgCp * T;
+
+        double kl = 1.0, kc = 1.0, kh = 1.0;
+
+        double termL = dLp / (Sl * kl);
+        double termC = dCp / (Sc * kc);
+        double termH = dHp / (Sh * kh);
+
+        double deltaE = Math.sqrt( termL * termL + termC * termC + termH * termH + Rt * termC * termH );
+        return deltaE;
+    }
 
 
     // 在 MainActivity 類的成員區新增：
@@ -1057,6 +1181,13 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         Log.d(TAG, "Camera started successfully");
     }
 
+
+    // 安全取用 normalizedLabs 的 helper（避免使用 java.util.function.*，支援 minSdk 21）
+    private double[] safeLabAt(double[][] normalizedLabs, int idx) {
+        if (normalizedLabs == null) return new double[]{0.0, 0.0, 0.0};
+        if (idx < 0 || idx >= normalizedLabs.length) return new double[]{0.0, 0.0, 0.0};
+        return normalizedLabs[idx];
+    }
 
     @Override
     protected void onDestroy() {
