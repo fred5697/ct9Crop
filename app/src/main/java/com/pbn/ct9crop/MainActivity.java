@@ -884,6 +884,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
     // 輔助：對 avgList 做以 brightest white 為參考的正規化，並顯示第二個對話視窗
     // java
     // 替換原有的 showNormalizedResultsDialog 方法為下列實作（同時儲存每個位置的 Lab(D50) 並在按 OK 後顯示 Delta-E 2000 結果）
+    // 更新：在 showNormalizedResultsDialog 內呼叫 showDeltaEResultsDialog 並傳入白點 Lab(D50)
     private void showNormalizedResultsDialog(int[][] avgList, int[] topAvg) {
         if (avgList == null || avgList.length == 0) return;
 
@@ -947,6 +948,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                 whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
 
         final double[][] finalNormalizedLabs = normalizedLabs;
+        final double[] finalWhiteLabD50 = whiteLabD50;
 
         runOnUiThread(() -> {
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
@@ -954,16 +956,32 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                     .setMessage(nsb.toString())
                     .setPositiveButton("OK", (d, w) -> {
                         d.dismiss();
-                        // 按下 OK 後顯示第三個對話視窗（Delta-E 2000）
-                        showDeltaEResultsDialog(finalNormalizedLabs);
+                        // 按下 OK 後顯示第三個對話視窗（Delta-E 2000 與 50% CMYK TV）
+                        showDeltaEResultsDialog(finalNormalizedLabs, finalWhiteLabD50);
                     })
                     .show();
         });
     }
 
+    // 新增：Lab(D50) -> 相對 Y (0..1)
+    private double labToRelativeY(double[] labD50) {
+        if (labD50 == null || labD50.length < 3) return 0.0;
+        double L = labD50[0];
+        double a = labD50[1];
+        double b = labD50[2];
+        double fy = (L + 16.0) / 116.0;
+        // 使用 labFinvSafe，Yn = 1，因此 labFinvSafe(fy) 就是相對 Y
+        double yr = labFinvSafe(fy);
+        if (yr < 0.0) yr = 0.0;
+        return yr; // 相對 Y (0..1)
+    }
+
     // 新增：計算並顯示 Delta-E 2000（pos2→Cyan, pos5→Magenta, pos0→Yellow, pos8→Black）
 // 改寫過的 showDeltaEResultsDialog，使用 safeLabAt 而非 IntFunction.apply
-    private void showDeltaEResultsDialog(double[][] normalizedLabs) {
+// 更新：計算並顯示 Delta-E 2000（pos2→Cyan, pos5→Magenta, pos0→Yellow, pos8→Black）
+// 並顯示 50% CMYK 的色度學 TV（pos1 = C50, pos4 = M50, pos3 = Y50, pos7 = K50）
+// 使用 TV = 100 * (1 - Y_patch / Y_white)
+    private void showDeltaEResultsDialog(double[][] normalizedLabs, double[] whiteLabD50) {
         if (normalizedLabs == null) return;
 
         // 參考 Lab (D50)
@@ -985,9 +1003,66 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0));
         sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8));
 
+        // 計算 50% CMYK 的 TV（colorimetric）
+        sb.append("\nColorimetric Tone Value (50% CMYK) :\n");
+
+        // 白點相對 Y
+        double[] whiteXYZ = labD50ToXyz(whiteLabD50);
+        double PX = whiteXYZ[0], PY = whiteXYZ[1], PZ = whiteXYZ[2];
+
+        // 取得 solid 與 50% patch 的 XYZ（索引對應：solid C=pos2, solid M=pos5, solid Y=pos0, solid K=pos8；50%: pos1,pos4,pos3,pos7）
+        double[] cSolidXYZ  = labD50ToXyz(safeLabAt(normalizedLabs, 2));
+        double[] mSolidXYZ  = labD50ToXyz(safeLabAt(normalizedLabs, 5));
+        double[] ySolidXYZ  = labD50ToXyz(safeLabAt(normalizedLabs, 0));
+        double[] kSolidXYZ  = labD50ToXyz(safeLabAt(normalizedLabs, 8));
+
+
+
+        double[] c50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 1));
+        double[] m50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 4));
+        double[] y50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 3));
+        double[] k50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 7));
+
+
+/*
+// C: 使用 X 和 Z 混合項 (係數 0.55)
+        double denomC = (PX - 0.55 * PZ) - (cSolidXYZ[0] - 0.55 * cSolidXYZ[2]);
+        double numerC = (PX - 0.55 * PZ) - (c50XYZ[0] - 0.55 * c50XYZ[2]);
+        double tvC = denomC == 0.0 ? 0.0 : (numerC / denomC) * 100.0;
+ */
+        double denomC = PY - cSolidXYZ[1];
+        double numerC = PY - c50XYZ[1];
+        double tvC = denomC == 0.0 ? 0.0 : (numerC / denomC) * 100.0;
+
+// M: 使用 Y 通道
+        double denomM = PY - mSolidXYZ[1];
+        double numerM = PY - m50XYZ[1];
+        double tvM = denomM == 0.0 ? 0.0 : (numerM / denomM) * 100.0;
+
+// Y: 使用 Z 通道
+        double denomY = PZ - ySolidXYZ[2];
+        double numerY = PZ - y50XYZ[2];
+        double tvY = denomY == 0.0 ? 0.0 : (numerY / denomY) * 100.0;
+
+// K: 使用 Y 通道（與 M 相同）
+        double denomK = PY - kSolidXYZ[2];
+        double numerK = PY - k50XYZ[1];
+        double tvK = denomK == 0.0 ? 0.0 : (numerK / denomK) * 100.0;
+
+        // 限制在 0..100 範圍以顯示
+        tvC = Math.max(0.0, Math.min(100.0, tvC));
+        tvM = Math.max(0.0, Math.min(100.0, tvM));
+        tvY = Math.max(0.0, Math.min(100.0, tvY));
+        tvK = Math.max(0.0, Math.min(100.0, tvK));
+
+        sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV = %.2f %%\n", tvC));
+        sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV = %.2f %%\n", tvM));
+        sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV = %.2f %%\n", tvY));
+        sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV = %.2f %%\n", tvK));
+
         runOnUiThread(() -> {
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Delta-E 2000")
+                    .setTitle("Delta-E 2000  & 50% CMYK TV")
                     .setMessage(sb.toString())
                     .setPositiveButton("OK", (d, w) -> d.dismiss())
                     .show();
@@ -1187,6 +1262,72 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (normalizedLabs == null) return new double[]{0.0, 0.0, 0.0};
         if (idx < 0 || idx >= normalizedLabs.length) return new double[]{0.0, 0.0, 0.0};
         return normalizedLabs[idx];
+    }
+
+    // Lab(D50) -> XYZ (relative, Yn = 1)
+    private double[] labD50ToXyz(double[] lab) {
+        if (lab == null || lab.length < 3) return new double[]{0.0, 0.0, 0.0};
+        final double Xn = 0.96422;
+        final double Yn = 1.0;
+        final double Zn = 0.82521;
+        double L = lab[0], a = lab[1], b = lab[2];
+        double fy = (L + 16.0) / 116.0;
+        double fx = fy + (a / 500.0);
+        double fz = fy - (b / 200.0);
+        double xr = labFinvSafe(fx);
+        double yr = labFinvSafe(fy);
+        double zr = labFinvSafe(fz);
+        double X = xr * Xn;
+        double Y = yr * Yn;
+        double Z = zr * Zn;
+        return new double[]{X, Y, Z};
+    }
+
+    // 計算 50% CMYK 的 colorimetric TV（依你提供的 PHP 公式）
+    private double[] computeCmyk50TvFromLabs(double[][] normalizedLabs, double[] whiteLabD50) {
+        // 索引映射：solid C=pos2, solid M=pos5, solid Y=pos0, solid K=pos8
+        // 50% patches: C50=pos1, M50=pos4, Y50=pos3, K50=pos7
+        double[] whiteXYZ = labD50ToXyz(whiteLabD50);
+
+        double[] cSolidXYZ  = labD50ToXyz(safeLabAt(normalizedLabs, 2));
+        double[] mSolidXYZ  = labD50ToXyz(safeLabAt(normalizedLabs, 5));
+        double[] ySolidXYZ  = labD50ToXyz(safeLabAt(normalizedLabs, 0));
+        double[] kSolidXYZ  = labD50ToXyz(safeLabAt(normalizedLabs, 8));
+
+        double[] c50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 1));
+        double[] m50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 4));
+        double[] y50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 3));
+        double[] k50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 7));
+
+        double PX = whiteXYZ[0], PY = whiteXYZ[1], PZ = whiteXYZ[2];
+
+        // C: 使用 X 和 Z 混合項 (係數 0.55)
+        double denomC = (PX - 0.55 * PZ) - (cSolidXYZ[0] - 0.55 * cSolidXYZ[2]);
+        double numerC = (PX - 0.55 * PZ) - (c50XYZ[0] - 0.55 * c50XYZ[2]);
+        double tvC = denomC == 0.0 ? 0.0 : (numerC / denomC) * 100.0;
+
+        // M: 使用 Y 通道
+        double denomM = PY - mSolidXYZ[1];
+        double numerM = PY - m50XYZ[1];
+        double tvM = denomM == 0.0 ? 0.0 : (numerM / denomM) * 100.0;
+
+        // Y: 使用 Z 通道
+        double denomY = PZ - ySolidXYZ[2];
+        double numerY = PZ - y50XYZ[2];
+        double tvY = denomY == 0.0 ? 0.0 : (numerY / denomY) * 100.0;
+
+        // K: 使用 Y 通道（此處採用 kY 作為分母，對應 M 的做法）
+        double denomK = PY - kSolidXYZ[1];
+        double numerK = PY - k50XYZ[1];
+        double tvK = denomK == 0.0 ? 0.0 : (numerK / denomK) * 100.0;
+
+        // 限制 0..100 範圍並回傳順序 {C, M, Y, K}
+        tvC = Math.max(0.0, Math.min(100.0, tvC));
+        tvM = Math.max(0.0, Math.min(100.0, tvM));
+        tvY = Math.max(0.0, Math.min(100.0, tvY));
+        tvK = Math.max(0.0, Math.min(100.0, tvK));
+
+        return new double[]{tvC, tvM, tvY, tvK};
     }
 
     @Override
