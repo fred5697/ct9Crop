@@ -810,11 +810,13 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         final int regionHalf = 15; // 30x30
 
         StringBuilder sb = new StringBuilder();
-        sb.append("9 positions averaged from two captures (A + B\u2192avg):\n");
+        sb.append("9 positions averaged from two captures (A + B → avg):\n");
+
+        // 保存每個位置的平均 RGB 以便稍後正規化
+        int[][] avgList = new int[points.length][3];
 
         for (int i = 0; i < points.length; i++) {
             int flip = 8 - i; // 180° 對應
-            // clamp coordinates 到各自圖片內
             int ax = Math.max(0, Math.min(points[i][0], bmpA.getWidth() - 1));
             int ay = Math.max(0, Math.min(points[i][1], bmpA.getHeight() - 1));
             int bx = Math.max(0, Math.min(points[flip][0], bmpB.getWidth() - 1));
@@ -827,6 +829,10 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             int avgG = (rgbA[1] + rgbB[1]) / 2;
             int avgB = (rgbA[2] + rgbB[2]) / 2;
 
+            avgList[i][0] = avgR;
+            avgList[i][1] = avgG;
+            avgList[i][2] = avgB;
+
             double[] labD65 = displayP3RgbToLab(avgR, avgG, avgB);
             double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
 
@@ -835,10 +841,11 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                     i, ax, ay, bx, by, avgR, avgG, avgB, labD50[0], labD50[1], labD50[2]));
         }
 
-        // 新增：產生兩張影像的像素平均圖，並計算 top30 最亮像素平均作為白參考
+        // 產生兩張影像的像素平均圖，並計算 top30 最亮像素平均作為白參考
         Bitmap avgBmp = averageBitmaps(bmpA, bmpB);
+        int[] topAvg = new int[]{0,0,0};
         if (avgBmp != null) {
-            int[] topAvg = averageTopBrightest(avgBmp, 30);
+            topAvg = averageTopBrightest(avgBmp, 30);
             double[] topLabD65 = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
             double[] topLabD50 = labD65ToLabD50(topLabD65[0], topLabD65[1], topLabD65[2]);
 
@@ -849,14 +856,91 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             if (!avgBmp.isRecycled()) avgBmp.recycle();
         }
 
+        final int[] finalTopAvg = topAvg; // for lambda
+
         runOnUiThread(() -> {
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
                     .setTitle("Averaged RGB & Lab (D50)")
                     .setMessage(sb.toString())
-                    .setPositiveButton("OK", (d,w) -> d.dismiss())
+                    .setPositiveButton("OK", (d, w) -> {
+                        d.dismiss();
+                        // 按下 OK 後顯示正規化結果的第二個對話視窗
+                        showNormalizedResultsDialog(avgList, finalTopAvg);
+                    })
                     .show();
         });
     }
+
+    // 輔助：對 avgList 做以 brightest white 為參考的正規化，並顯示第二個對話視窗
+    // java
+    private void showNormalizedResultsDialog(int[][] avgList, int[] topAvg) {
+        if (avgList == null || avgList.length == 0) return;
+
+        // 目標白色（修正：B = 236）
+        final double targetR = 233.0;
+        final double targetG = 231.0;
+        final double targetB = 236.0;
+
+        // 計算通道放大係數（避開除以 0）
+        double scaleR = topAvg[0] > 0 ? (targetR / (double) topAvg[0]) : 1.0;
+        double scaleG = topAvg[1] > 0 ? (targetG / (double) topAvg[1]) : 1.0;
+        double scaleB = topAvg[2] > 0 ? (targetB / (double) topAvg[2]) : 1.0;
+
+        StringBuilder nsb = new StringBuilder();
+        nsb.append("Normalized results (white mapped to ");
+        nsb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f", targetR, targetG, targetB));
+        nsb.append(")\n\n");
+
+        // 正規化每個位置（只 clamp 到 0..255）
+        for (int i = 0; i < avgList.length; i++) {
+            int orR = avgList[i][0];
+            int orG = avgList[i][1];
+            int orB = avgList[i][2];
+
+            int nR = (int) Math.round(orR * scaleR);
+            int nG = (int) Math.round(orG * scaleG);
+            int nB = (int) Math.round(orB * scaleB);
+
+            // 僅保證 0..255
+            nR = Math.max(0, Math.min(255, nR));
+            nG = Math.max(0, Math.min(255, nG));
+            nB = Math.max(0, Math.min(255, nB));
+
+            double[] labD65 = displayP3RgbToLab(nR, nG, nB);
+            double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
+
+            nsb.append(String.format(Locale.US,
+                    "pos %d -> R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    i, nR, nG, nB, labD50[0], labD50[1], labD50[2]));
+        }
+
+        // 顯示正規化後的白參考值（經同樣縮放）
+        int whiteR = (int) Math.round(topAvg[0] * scaleR);
+        int whiteG = (int) Math.round(topAvg[1] * scaleG);
+        int whiteB = (int) Math.round(topAvg[2] * scaleB);
+        whiteR = Math.max(0, Math.min(255, whiteR));
+        whiteG = Math.max(0, Math.min(255, whiteG));
+        whiteB = Math.max(0, Math.min(255, whiteB));
+
+        double[] whiteLabD65 = displayP3RgbToLab(whiteR, whiteG, whiteB);
+        double[] whiteLabD50 = labD65ToLabD50(whiteLabD65[0], whiteLabD65[1], whiteLabD65[2]);
+
+        nsb.append("\nNormalized white (after scaling):\n");
+        nsb.append(String.format(Locale.US,
+                "R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
+
+        final String message = nsb.toString();
+
+        runOnUiThread(() -> {
+            new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Normalized RGB & Lab (D50)")
+                    .setMessage(message)
+                    .setPositiveButton("OK", (d, w) -> d.dismiss())
+                    .show();
+        });
+    }
+
 
 
     // 在 MainActivity 類的成員區新增：
