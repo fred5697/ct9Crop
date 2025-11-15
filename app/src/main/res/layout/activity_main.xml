@@ -53,4 +53,30 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
+    <LinearLayout
+        android:id="@+id/exposureLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp"
+        app:layout_constraintBottom_toTopOf="@id/captureButton"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <TextView
+            android:id="@+id/exposureValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Exposure: 0"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:layout_marginBottom="6dp"/>
+
+        <SeekBar
+            android:id="@+id/exposureSeekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="20"
+            android:progress="10"/>
+    </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

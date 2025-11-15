@@ -43,6 +43,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import com.pbn.ct9crop.R;
 import android.view.KeyEvent;
+import androidx.camera.core.Camera;
+import android.widget.SeekBar;
+import android.util.Range;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "CT9Crop";
@@ -55,10 +58,18 @@ public class MainActivity extends AppCompatActivity {
     private ImageCapture imageCapture;
     private ExecutorService cameraExecutor;
 
+    private Camera camera = null;
+    private SeekBar exposureSeekBar;
+    private TextView exposureValue;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        exposureSeekBar = findViewById(R.id.exposureSeekBar);
+        exposureValue = findViewById(R.id.exposureValue);
+        exposureSeekBar.setEnabled(false);
+        exposureValue.setText("Exposure: 0");
 
         previewView = findViewById(R.id.previewView);
         frameOverlay = findViewById(R.id.frameOverlay);
@@ -232,30 +243,7 @@ public class MainActivity extends AppCompatActivity {
         }, ContextCompat.getMainExecutor(this));
     }
 
-    private void bindCameraUseCases(ProcessCameraProvider cameraProvider) {
-        int aspectRatio = androidx.camera.core.AspectRatio.RATIO_4_3;
 
-        // Preview
-        Preview preview = new Preview.Builder()
-                .setTargetAspectRatio(aspectRatio)
-                .build();
-        preview.setSurfaceProvider(previewView.getSurfaceProvider());
-
-        // Image Capture
-        imageCapture = new ImageCapture.Builder()
-                .setTargetAspectRatio(aspectRatio)
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-                .build();
-
-        // Camera selector
-        CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
-
-        // Bind to lifecycle
-        cameraProvider.unbindAll();
-        cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
-
-        Log.d(TAG, "Camera started successfully");
-    }
 
     private void captureImage() {
         if (imageCapture == null) {
@@ -398,7 +386,29 @@ public class MainActivity extends AppCompatActivity {
             // 產生像素平均圖並儲存
             Bitmap avgBmp = averageBitmaps(bmpA, bmpB);
             if (avgBmp != null) {
-                saveImage(avgBmp);
+                // 計算 top30 最亮平均並檢查是否足夠明亮
+                int[] brightest = averageTopBrightest(avgBmp, 30);
+                int brightestMax = Math.max(brightest[0], Math.max(brightest[1], brightest[2]));
+                if (brightestMax < 200) {
+                    // 不儲存，提示使用者調整曝光並重新拍攝
+                    final int bMax = brightestMax;
+                    if (!avgBmp.isRecycled()) avgBmp.recycle();
+                    pendingCapturedCropped = null;
+                    runOnUiThread(() -> {
+                        new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                                .setTitle("曝光不足")
+                                .setMessage(String.format(Locale.getDefault(),
+                                        "偵測到目前最亮 RGB = %d (< 200)。請增加曝光（使用畫面下方滑桿）後重新拍攝。", bMax))
+                                .setPositiveButton("OK", (d, w) -> d.dismiss())
+                                .show();
+                        statusText.setText("Increase exposure and recapture");
+                        statusText.setBackgroundColor(0xDDFF4444);
+                        resetCaptureButton();
+                    });
+                } else {
+                    // 亮度足夠，儲存 avgBmp
+                    saveImage(avgBmp);
+                }
             }
 
             // 清除暫存並回復 UI
@@ -985,6 +995,68 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         }
         return out;
     }
+
+    // 3) 在 bindCameraUseCases(...) 中取得 Camera 實例並設定曝光滑桿
+    // java
+    private void bindCameraUseCases(ProcessCameraProvider cameraProvider) {
+        int aspectRatio = androidx.camera.core.AspectRatio.RATIO_4_3;
+
+        // Preview
+        Preview preview = new Preview.Builder()
+                .setTargetAspectRatio(aspectRatio)
+                .build();
+        preview.setSurfaceProvider(previewView.getSurfaceProvider());
+
+        // Image Capture
+        imageCapture = new ImageCapture.Builder()
+                .setTargetAspectRatio(aspectRatio)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .build();
+
+        // Camera selector
+        CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+
+        // Unbind previous use-cases and bind new ones, 並取得 Camera 實例
+        cameraProvider.unbindAll();
+        try {
+            camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to bind camera use cases", e);
+            return;
+        }
+
+        // 設定曝光滑桿（若可用）
+        try {
+            androidx.camera.core.ExposureState es = camera.getCameraInfo().getExposureState();
+            Range<Integer> range = es.getExposureCompensationRange();
+            int min = range.getLower();
+            int max = range.getUpper();
+            final int offset = min; // map seekbar 0..(max-min) -> index = progress + offset
+            exposureSeekBar.setMax(max - min);
+            int currentIndex = es.getExposureCompensationIndex();
+            exposureSeekBar.setProgress(currentIndex - offset);
+            exposureSeekBar.setEnabled(true);
+            exposureValue.setText("Exposure: " + currentIndex);
+
+            exposureSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    int index = progress + offset;
+                    exposureValue.setText("Exposure: " + index);
+                    if (camera != null) {
+                        camera.getCameraControl().setExposureCompensationIndex(index);
+                    }
+                }
+                @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+                @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "Exposure control not available", e);
+            exposureSeekBar.setEnabled(false);
+        }
+
+        Log.d(TAG, "Camera started successfully");
+    }
+
 
     @Override
     protected void onDestroy() {
