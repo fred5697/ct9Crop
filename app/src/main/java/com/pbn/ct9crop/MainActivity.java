@@ -885,6 +885,9 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
     // java
     // 替換原有的 showNormalizedResultsDialog 方法為下列實作（同時儲存每個位置的 Lab(D50) 並在按 OK 後顯示 Delta-E 2000 結果）
     // 更新：在 showNormalizedResultsDialog 內呼叫 showDeltaEResultsDialog 並傳入白點 Lab(D50)
+// java
+// 修改後的 showNormalizedResultsDialog 與 showDeltaEResultsDialog
+
     private void showNormalizedResultsDialog(int[][] avgList, int[] topAvg) {
         if (avgList == null || avgList.length == 0) return;
 
@@ -906,11 +909,22 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         // 存放每個位置正規化後的 Lab(D50)
         double[][] normalizedLabs = new double[avgList.length][3];
 
+        // 同時建立未正規化 (raw) 的 Lab(D50)
+        double[][] originalLabs = new double[avgList.length][3];
+
         for (int i = 0; i < avgList.length; i++) {
             int orR = avgList[i][0];
             int orG = avgList[i][1];
             int orB = avgList[i][2];
 
+            // 原始 (未正規化) -> Lab(D50)
+            double[] labD65_orig = displayP3RgbToLab(orR, orG, orB);
+            double[] labD50_orig = labD65ToLabD50(labD65_orig[0], labD65_orig[1], labD65_orig[2]);
+            originalLabs[i][0] = labD50_orig[0];
+            originalLabs[i][1] = labD50_orig[1];
+            originalLabs[i][2] = labD50_orig[2];
+
+            // 正規化 RGB
             int nR = (int) Math.round(orR * scale[0]);
             int nG = (int) Math.round(orG * scale[1]);
             int nB = (int) Math.round(orB * scale[2]);
@@ -947,8 +961,14 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                 "R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
                 whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
 
+        // 同時產生原始白點的 Lab(D50)（未經縮放）
+        double[] origWhiteLabD65 = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
+        double[] origWhiteLabD50 = labD65ToLabD50(origWhiteLabD65[0], origWhiteLabD65[1], origWhiteLabD65[2]);
+
         final double[][] finalNormalizedLabs = normalizedLabs;
         final double[] finalWhiteLabD50 = whiteLabD50;
+        final double[][] finalOriginalLabs = originalLabs;
+        final double[] finalOrigWhiteLabD50 = origWhiteLabD50;
 
         runOnUiThread(() -> {
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
@@ -956,8 +976,77 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                     .setMessage(nsb.toString())
                     .setPositiveButton("OK", (d, w) -> {
                         d.dismiss();
-                        // 按下 OK 後顯示第三個對話視窗（Delta-E 2000 與 50% CMYK TV）
-                        showDeltaEResultsDialog(finalNormalizedLabs, finalWhiteLabD50);
+                        // 按下 OK 後顯示第三個對話視窗（Delta-E 2000、50% CMYK TV）
+                        showDeltaEResultsDialog(finalNormalizedLabs, finalWhiteLabD50, finalOriginalLabs, finalOrigWhiteLabD50);
+                    })
+                    .show();
+        });
+    }
+
+    // 修改：將 showDeltaEResultsDialog 內的 AlertDialog 的 OK 行為，改為在按下後呼叫 showScoreDialog
+// 若原本已定義 showDeltaEResultsDialog，請以此版本替換之
+    private void showDeltaEResultsDialog(double[][] normalizedLabs, double[] whiteLabD50, double[][] originalLabs, double[] origWhiteLabD50) {
+        if (normalizedLabs == null) return;
+
+        double[] cyanRef = new double[]{56.0, -27.0, -46.0};
+        double[] magRef  = new double[]{48.0,  72.0,  -3.0};
+        double[] yelRef  = new double[]{89.0,  -1.0,  96.0};
+        double[] blkRef  = new double[]{16.0,  0.1,   0.1};
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Delta-E 2000 results (normalized):\n\n");
+
+        double dePos2 = deltaE2000(safeLabAt(normalizedLabs, 2), cyanRef);
+        double dePos5 = deltaE2000(safeLabAt(normalizedLabs, 5), magRef);
+        double dePos0 = deltaE2000(safeLabAt(normalizedLabs, 0), yelRef);
+        double dePos8 = deltaE2000(safeLabAt(normalizedLabs, 8), blkRef);
+
+        sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2));
+        sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5));
+        sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0));
+        sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8));
+
+        double[] tvNorm = computeCmyk50TvFromLabs(normalizedLabs, whiteLabD50);
+        sb.append("\nColorimetric Tone Value (50% CMYK) [normalized]:\n");
+        sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV = %.2f %%\n", tvNorm[0]));
+        sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV = %.2f %%\n", tvNorm[1]));
+        sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV = %.2f %%\n", tvNorm[2]));
+        sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV = %.2f %%\n", tvNorm[3]));
+
+        // Unnormalized block
+        sb.append("\nUnnormalized (raw) results:\n\n");
+
+        double dePos2_u = deltaE2000(safeLabAt(originalLabs, 2), cyanRef);
+        double dePos5_u = deltaE2000(safeLabAt(originalLabs, 5), magRef);
+        double dePos0_u = deltaE2000(safeLabAt(originalLabs, 0), yelRef);
+        double dePos8_u = deltaE2000(safeLabAt(originalLabs, 8), blkRef);
+
+        sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2_u));
+        sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5_u));
+        sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0_u));
+        sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8_u));
+
+        double[] tvRaw = computeCmyk50TvFromLabs(originalLabs, origWhiteLabD50);
+        sb.append("\nColorimetric Tone Value (50% CMYK) [raw]:\n");
+        sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV = %.2f %%\n", tvRaw[0]));
+        sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV = %.2f %%\n", tvRaw[1]));
+        sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV = %.2f %%\n", tvRaw[2]));
+        sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV = %.2f %%\n", tvRaw[3]));
+
+        final double f_dePos2 = dePos2;
+        final double f_dePos5 = dePos5;
+        final double f_dePos0 = dePos0;
+        final double f_dePos8 = dePos8;
+
+        runOnUiThread(() -> {
+            new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Delta‑E 2000 & TV results")
+                    .setMessage(sb.toString())
+                    .setPositiveButton("OK", (d, w) -> {
+                        d.dismiss();
+                        // 按下 OK 後顯示第四個彈窗：分數
+                       // showScoreDialog(f_dePos2, f_dePos5, f_dePos0, f_dePos8);
+                        showScoreDialog(f_dePos2, f_dePos5, f_dePos0, f_dePos8, tvNorm[0], tvNorm[1], tvNorm[2], tvNorm[3]);
                     })
                     .show();
         });
@@ -1328,6 +1417,77 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         tvK = Math.max(0.0, Math.min(100.0, tvK));
 
         return new double[]{tvC, tvM, tvY, tvK};
+    }
+
+    // 新增：依 ΔE00 計算單一 patch 分數
+    private int scoreForDelta(double de) {
+        if (de <= 3.5) return 5;
+        if (de <= 4.0) return 4;
+        if (de <= 5.0) return 3;
+        if (de <= 6.0) return 2;
+        return 0;
+    }
+
+    // 依 TV 絕對差異計分（new rules: <3 ->10, (3,4]->7, (4,5]->5, (5,6]->3, (6,7]->1, >7->0）
+    private int scoreForTvDiff(double diff) {
+        double d = Math.abs(diff);
+        if (d < 3.0) return 10;
+        if (d <= 4.0) return 7;
+        if (d <= 5.0) return 5;
+        if (d <= 6.0) return 3;
+        if (d <= 7.0) return 1;
+        return 0;
+    }
+
+    // 顯示第四個彈窗：列出每個 patch 的 ΔE、ΔE 分數、TV、TV 差異與 TV 分數，以及小計與總分
+    private void showScoreDialog(double dePos2, double dePos5, double dePos0, double dePos8,
+                                 double tvC, double tvM, double tvY, double tvK) {
+        // 參考 TV (C, M, Y, K)
+        double[] refTv = new double[]{70.0, 67.0, 63.0, 68.0};
+
+        final int s2 = scoreForDelta(dePos2);
+        final int s5 = scoreForDelta(dePos5);
+        final int s0 = scoreForDelta(dePos0);
+        final int s8 = scoreForDelta(dePos8);
+        int deTotal = s2 + s5 + s0 + s8; // max 20
+
+        double diffC = tvC - refTv[0];
+        double diffM = tvM - refTv[1];
+        double diffY = tvY - refTv[2];
+        double diffK = tvK - refTv[3];
+
+        final int tvsC = scoreForTvDiff(diffC);
+        final int tvsM = scoreForTvDiff(diffM);
+        final int tvsY = scoreForTvDiff(diffY);
+        final int tvsK = scoreForTvDiff(diffK);
+        int tvTotal = tvsC + tvsM + tvsY + tvsK; // max 40
+
+        int grandTotal = deTotal + tvTotal;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Color ΔE00 scores (pos2,pos5,pos0,pos8):\n\n");
+        sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f  → %d pts\n", dePos2, s2));
+        sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f  → %d pts\n", dePos5, s5));
+        sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f  → %d pts\n", dePos0, s0));
+        sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f  → %d pts\n", dePos8, s8));
+        sb.append(String.format(Locale.US, "\nΔE subtotal: %d / 20\n\n", deTotal));
+
+        sb.append("Colorimetric TV comparison (pos1,pos4,pos3,pos7):\n\n");
+        sb.append(String.format(Locale.US, "pos 1 (C50) : TV=%.2f  ref=%.1f  Δ=%.2f  → %d pts\n", tvC, refTv[0], diffC, tvsC));
+        sb.append(String.format(Locale.US, "pos 4 (M50) : TV=%.2f  ref=%.1f  Δ=%.2f  → %d pts\n", tvM, refTv[1], diffM, tvsM));
+        sb.append(String.format(Locale.US, "pos 3 (Y50) : TV=%.2f  ref=%.1f  Δ=%.2f  → %d pts\n", tvY, refTv[2], diffY, tvsY));
+        sb.append(String.format(Locale.US, "pos 7 (K50) : TV=%.2f  ref=%.1f  Δ=%.2f  → %d pts\n", tvK, refTv[3], diffK, tvsK));
+        sb.append(String.format(Locale.US, "\nTV subtotal: %d / 40\n\n", tvTotal));
+
+        sb.append(String.format(Locale.US, "Grand total: %d / 60\n", grandTotal));
+
+        runOnUiThread(() -> {
+            new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Color Score & TV Score")
+                    .setMessage(sb.toString())
+                    .setPositiveButton("OK", (d, w) -> d.dismiss())
+                    .show();
+        });
     }
 
     @Override
