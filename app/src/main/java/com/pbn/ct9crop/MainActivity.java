@@ -62,6 +62,10 @@ public class MainActivity extends AppCompatActivity {
     private SeekBar exposureSeekBar;
     private TextView exposureValue;
 
+    // 新增類成員：控制第二張是否採用 180° 翻轉配對取樣（預設 true，原行為）
+    private boolean secondCaptureFlip = true;
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -78,7 +82,21 @@ public class MainActivity extends AppCompatActivity {
 
         cameraExecutor = Executors.newSingleThreadExecutor();
 
+        //captureButton.setOnClickListener(v -> captureImage());
+
+        // captureButton 已存在的點擊行為保持不變
         captureButton.setOnClickListener(v -> captureImage());
+
+        // 長按 captureButton 切換第二拍攝模式（翻轉 / 不翻轉）
+        captureButton.setOnLongClickListener(v -> {
+            secondCaptureFlip = !secondCaptureFlip;
+            String modeText = secondCaptureFlip ? "Flip sampling (rotate 180° for 2nd)" : "No-flip sampling (no rotation for 2nd)";
+            Toast.makeText(MainActivity.this, "Second-capture mode: " + modeText, Toast.LENGTH_SHORT).show();
+            // 更新狀態欄提示使用者目前模式
+            statusText.setText("Mode: " + (secondCaptureFlip ? "Flip" : "No-flip") + " — Align 3x3 grid");
+            statusText.setBackgroundColor(0x80000000);
+            return true; // 表示已消耗長按事件
+        });
 
         // Draw square frame overlay after view is laid out
         previewView.post(() -> drawSquareFrame());
@@ -359,16 +377,23 @@ public class MainActivity extends AppCompatActivity {
 // 把最後一段 showRgbInfoDialog(croppedBitmap); saveImage(croppedBitmap);
 // 替換為下列流程（直接貼入 processCapturedImage 的 croppedBitmap 生成後）：
 
+        // 在 processCapturedImage(...) 中，修改第一張暫存時的提示文字，依模式提示使用者是否要翻轉裝置
         if (pendingCapturedCropped == null) {
-            // 第一張已拍，提示使用者翻轉裝置並再次拍攝
             pendingCapturedCropped = croppedBitmap; // 儲存第一張（已裁切）
             runOnUiThread(() -> {
+                String title = "Please capture 2nd image";
+                String message;
+                if (secondCaptureFlip) {
+                    message = "請將裝置或被攝物件旋轉 180°，然後再次按下 CAPTURE。\n\n第一張已暫存。";
+                } else {
+                    message = "請直接再次按下 CAPTURE 拍攝第二張（不要翻轉裝置）。\n\n第一張已暫存。";
+                }
                 new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                        .setTitle("Please capture 2nd image")
-                        .setMessage("請將裝置或被攝物件旋轉 180°，然後再次按下 CAPTURE。\n\n第一張已暫存。")
+                        .setTitle(title)
+                        .setMessage(message)
                         .setPositiveButton("OK", (d, w) -> {
                             d.dismiss();
-                            statusText.setText("Rotate 180° and capture 2nd");
+                            statusText.setText(secondCaptureFlip ? "Rotate 180° and capture 2nd" : "Capture 2nd (no rotation)");
                             statusText.setBackgroundColor(0xDDFFAA00);
                             resetCaptureButton();
                         })
@@ -810,6 +835,52 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
     // 修改後：對兩張顛倒拍攝的圖像，對應點配對平均後顯示 D50 Lab，並附加 top30 最亮像素平均（白參考）
     private void showRgbInfoDialogDoubleCapture(Bitmap bmpA, Bitmap bmpB) {
+
+        // 在 showRgbInfoDialogDoubleCapture 方法開頭加入此分支
+        if (!secondCaptureFlip) {
+            if (bmpA == null || bmpB == null) return;
+            int[][] points = new int[][] {
+                    {175,175}, {175,525}, {175,875},
+                    {528,175}, {515,525}, {525,875},
+                    {875,175}, {875,525}, {875,875}
+            };
+            final int regionHalf = 15; // 30x30
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("ΔE00 of 9 positions (no-flip mode):\n\n");
+
+            for (int i = 0; i < points.length; i++) {
+                int origX = points[i][0];
+                int origY = points[i][1];
+                int cx = Math.max(0, Math.min(origX, bmpA.getWidth() - 1));
+                int cy = Math.max(0, Math.min(origY, bmpA.getHeight() - 1));
+
+                // 兩張影像取相同位置平均 RGB
+                int[] rgbA = averageRgbInRegion(bmpA, cx, cy, regionHalf);
+                int[] rgbB = averageRgbInRegion(bmpB, cx, cy, regionHalf);
+
+                // 轉為 Lab(D50)
+                double[] labA_d65 = displayP3RgbToLab(rgbA[0], rgbA[1], rgbA[2]);
+                double[] labA = labD65ToLabD50(labA_d65[0], labA_d65[1], labA_d65[2]);
+                double[] labB_d65 = displayP3RgbToLab(rgbB[0], rgbB[1], rgbB[2]);
+                double[] labB = labD65ToLabD50(labB_d65[0], labB_d65[1], labB_d65[2]);
+
+                double de = deltaE2000(labA, labB);
+                sb.append(String.format(Locale.US, "pos %d : ΔE00 = %.2f\n", i, de));
+            }
+
+            final String message = sb.toString();
+            runOnUiThread(() -> {
+                new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                        .setTitle("ΔE00 9 positions")
+                        .setMessage(message)
+                        .setPositiveButton("OK", (d, w) -> d.dismiss())
+                        .show();
+            });
+            return; // 不執行後續的 flip-mode 處理
+        }
+
+
         if (bmpA == null || bmpB == null) return;
 
         int[][] points = new int[][] {
@@ -821,6 +892,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
         StringBuilder sb = new StringBuilder();
         sb.append("9 positions averaged from two captures (A + B → avg):\n");
+        sb.append("Mode: ").append(secondCaptureFlip ? "Flip (180° pairing)" : "No-flip (same positions)").append("\n\n");
 
         // 保存每個位置的平均 RGB 以便稍後正規化
         int[][] avgList = new int[points.length][3];
