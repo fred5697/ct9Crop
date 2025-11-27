@@ -623,12 +623,8 @@ public class MainActivity extends AppCompatActivity {
     // 替换现有的 showRgbInfoDialog 方法为下列实现（显示 D50 Lab），并在类中添加 labD65ToLabD50 / labFinvSafe / mulMatVec 方法。
 
     private void showRgbInfoDialog(Bitmap bmp) {
-        int[][] points = new int[][] {
-                {175,175}, {175,525}, {175,875},
-                {528,175}, {515,525}, {525,875},
-                {875,175}, {875,525}, {875,875}
-        };
-        final int regionHalf = 15; // 30x30 区域 => 半径 15
+        int[][] points = gridPointsFromSize(bmp.getWidth(), bmp.getHeight());
+        final int regionHalf = 20; // 30x30 区域 => 半径 15
 
         StringBuilder sb = new StringBuilder();
         sb.append("9 positions RGB (avg 30x30):\n");
@@ -839,12 +835,8 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         // 在 showRgbInfoDialogDoubleCapture 方法開頭加入此分支
         if (!secondCaptureFlip) {
             if (bmpA == null || bmpB == null) return;
-            int[][] points = new int[][] {
-                    {175,175}, {175,525}, {175,875},
-                    {528,175}, {515,525}, {525,875},
-                    {875,175}, {875,525}, {875,875}
-            };
-            final int regionHalf = 15; // 30x30
+            int[][] points = gridPointsFromSize(bmpA.getWidth(), bmpA.getHeight());
+            final int regionHalf = 20; // 30x30
 
             StringBuilder sb = new StringBuilder();
             sb.append("ΔE00 of 9 positions (no-flip mode):\n\n");
@@ -883,12 +875,8 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
         if (bmpA == null || bmpB == null) return;
 
-        int[][] points = new int[][] {
-                {175,175}, {175,525}, {175,875},
-                {528,175}, {515,525}, {525,875},
-                {875,175}, {875,525}, {875,875}
-        };
-        final int regionHalf = 15; // 30x30
+        int[][] points = gridPointsFromSize(bmpB.getWidth(), bmpB.getHeight());
+        final int regionHalf = 20; // 30x30
 
         StringBuilder sb = new StringBuilder();
         sb.append("9 positions averaged from two captures (A + B → avg):\n");
@@ -952,6 +940,28 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                     .show();
         });
     }
+
+    // 新增到 MainActivity.java（或替換原先固定 points 陣列的地方）
+
+    private int[][] gridPointsFromSize(int w, int h) {
+        // 每個 index (0..8) 的 x 與 y 百分比（對應你要求的排列）
+        double[] px = {0.18, 0.18, 0.18, 0.50, 0.50, 0.50, 0.82, 0.82, 0.82};
+        double[] py = {0.18, 0.50, 0.85, 0.18, 0.50, 0.82, 0.18, 0.50, 0.82};
+
+        int[][] pts = new int[9][2];
+        for (int i = 0; i < 9; i++) {
+            int cx = (int) Math.round(px[i] * w);
+            int cy = (int) Math.round(py[i] * h);
+            // 邊界保護
+            cx = Math.max(0, Math.min(w - 1, cx));
+            cy = Math.max(0, Math.min(h - 1, cy));
+            pts[i][0] = cx;
+            pts[i][1] = cy;
+        }
+        return pts;
+    }
+
+
 
     // 輔助：對 avgList 做以 brightest white 為參考的正規化，並顯示第二個對話視窗
     // java
@@ -1085,6 +1095,11 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV = %.2f %%\n", tvNorm[2]));
         sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV = %.2f %%\n", tvNorm[3]));
 
+        // --- 新增區塊：顯示 pos6,pos7,pos8 的 Lab 轉為 D65 (適用 DisplayP3/D65) ---
+        double[] lab6_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 6));
+        double[] lab7_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 7));
+        double[] lab8_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 8));
+
         // Unnormalized block
         sb.append("\nUnnormalized (raw) results:\n\n");
 
@@ -1092,6 +1107,12 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double dePos5_u = deltaE2000(safeLabAt(originalLabs, 5), magRef);
         double dePos0_u = deltaE2000(safeLabAt(originalLabs, 0), yelRef);
         double dePos8_u = deltaE2000(safeLabAt(originalLabs, 8), blkRef);
+
+        sb.append("\nPositions 6,7,8 as Lab (D65) - suitable for P3/D65:\n");
+        sb.append(String.format(Locale.US, "pos 6 : L=%.2f a=%.2f b=%.2f\n", lab6_d65[0], lab6_d65[1], lab6_d65[2]));
+        sb.append(String.format(Locale.US, "pos 7 : L=%.2f a=%.2f b=%.2f\n", lab7_d65[0], lab7_d65[1], lab7_d65[2]));
+        sb.append(String.format(Locale.US, "pos 8 : L=%.2f a=%.2f b=%.2f\n", lab8_d65[0], lab8_d65[1], lab8_d65[2]));
+        //
 
         sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2_u));
         sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5_u));
@@ -1560,6 +1581,66 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                     .setPositiveButton("OK", (d, w) -> d.dismiss())
                     .show();
         });
+    }
+
+    // 新增：Lab(D50) -> Lab(D65)（使用 Bradford 適配從 D50 -> D65）
+    private double[] labD50ToLabD65(double[] labD50) {
+        if (labD50 == null || labD50.length < 3) return new double[]{0.0, 0.0, 0.0};
+
+        // Lab(D50) -> XYZ(D50)
+        double[] xyzD50 = labD50ToXyz(labD50); // 已存在的方法，返回相對 XYZ (Yn = 1)
+
+        // Bradford matrices
+        double[][] M = {
+                {0.8951000,  0.2664000, -0.1614000},
+                {-0.7502000, 1.7135000,  0.0367000},
+                {0.0389000, -0.0685000,  1.0296000}
+        };
+        double[][] M_INV = {
+                { 0.9869929, -0.1470543,  0.1599627},
+                { 0.4323053,  0.5183603,  0.0492912},
+                {-0.0085287,  0.0400428,  0.9684867}
+        };
+
+        // White points
+        double[] whiteD50 = new double[]{0.96422, 1.0, 0.82521};
+        double[] whiteD65 = new double[]{0.95047, 1.0, 1.08883};
+
+        // cone responses
+        double[] srcCone = mulMatVec(M, whiteD50);
+        double[] dstCone = mulMatVec(M, whiteD65);
+
+        // convert XYZ(D50) to cone
+        double[] cone = mulMatVec(M, xyzD50);
+
+        // scale from D50 -> D65 in cone space
+        double[] scale = new double[3];
+        for (int i = 0; i < 3; i++) {
+            scale[i] = srcCone[i] == 0.0 ? 1.0 : (dstCone[i] / srcCone[i]);
+        }
+        double[] adaptedCone = new double[3];
+        for (int i = 0; i < 3; i++) adaptedCone[i] = cone[i] * scale[i];
+
+        // back to XYZ (D65)
+        double[] adaptedXYZ = mulMatVec(M_INV, adaptedCone);
+        double Xd65 = adaptedXYZ[0];
+        double Yd65 = adaptedXYZ[1];
+        double Zd65 = adaptedXYZ[2];
+
+        // XYZ(D65) -> Lab(D65)
+        final double Xn_D65 = 0.95047;
+        final double Yn = 1.0;
+        final double Zn_D65 = 1.08883;
+
+        double fx = labF(Xd65 / Xn_D65);
+        double fy = labF(Yd65 / Yn);
+        double fz = labF(Zd65 / Zn_D65);
+
+        double L = 116.0 * fy - 16.0;
+        double a = 500.0 * (fx - fy);
+        double b = 200.0 * (fy - fz);
+
+        return new double[]{L, a, b};
     }
 
     @Override
