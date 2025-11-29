@@ -18,6 +18,8 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -61,6 +63,30 @@ public class MainActivity extends AppCompatActivity {
     private Camera camera = null;
     private SeekBar exposureSeekBar;
     private TextView exposureValue;
+
+    private static final double POS6_REF_L = 56.0;
+    private static final double POS6_REF_A = 3.0;
+    private static final double POS6_REF_B = -2.0;
+
+    private int scoreForL(double deltaL) {
+        if (deltaL < 2.5) return 10;
+        if (deltaL <= 3.0) return 8;
+        if (deltaL <= 4.0) return 5;
+        if (deltaL <= 5.0) return 3;
+        if (deltaL <= 6.0) return 2;
+        return 0;
+    }
+
+    private int scoreForGrayCh(double deltaCh) {
+        if (deltaCh < 2.5) return 10;
+        if (deltaCh <= 3.0) return 8;
+        if (deltaCh <= 4.0) return 5;
+        if (deltaCh <= 5.0) return 3;
+        if (deltaCh <= 6.0) return 2;
+        return 0;
+    }
+
+
 
     // 新增類成員：控制第二張是否採用 180° 翻轉配對取樣（預設 true，原行為）
     private boolean secondCaptureFlip = true;
@@ -838,38 +864,111 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             int[][] points = gridPointsFromSize(bmpA.getWidth(), bmpA.getHeight());
             final int regionHalf = 20; // 30x30
 
-            StringBuilder sb = new StringBuilder();
-            sb.append("ΔE00 of 9 positions (no-flip mode):\n\n");
+            StringBuilder sbNoFlip = new StringBuilder();
+            sbNoFlip.append("No‑Flip mode — ΔE00 of 9 positions + Top30 brightest average\n\n");
+            sbNoFlip.append("All positions: Lab (D50) for A and B, ΔE00 and points\n\n");
+
+            double[][] labsA = new double[9][3];
+            double[][] labsB = new double[9][3];
+
+            int totalPoints = 0;
 
             for (int i = 0; i < points.length; i++) {
-                int origX = points[i][0];
-                int origY = points[i][1];
-                int cx = Math.max(0, Math.min(origX, bmpA.getWidth() - 1));
-                int cy = Math.max(0, Math.min(origY, bmpA.getHeight() - 1));
+                int ax = Math.max(0, Math.min(points[i][0], bmpA.getWidth() - 1));
+                int ay = Math.max(0, Math.min(points[i][1], bmpA.getHeight() - 1));
+                int bx = Math.max(0, Math.min(points[i][0], bmpB.getWidth() - 1));
+                int by = Math.max(0, Math.min(points[i][1], bmpB.getHeight() - 1));
 
-                // 兩張影像取相同位置平均 RGB
-                int[] rgbA = averageRgbInRegion(bmpA, cx, cy, regionHalf);
-                int[] rgbB = averageRgbInRegion(bmpB, cx, cy, regionHalf);
+                int[] rgbA = averageRgbInRegion(bmpA, ax, ay, regionHalf);
+                int[] rgbB = averageRgbInRegion(bmpB, bx, by, regionHalf);
 
-                // 轉為 Lab(D50)
                 double[] labA_d65 = displayP3RgbToLab(rgbA[0], rgbA[1], rgbA[2]);
                 double[] labA = labD65ToLabD50(labA_d65[0], labA_d65[1], labA_d65[2]);
                 double[] labB_d65 = displayP3RgbToLab(rgbB[0], rgbB[1], rgbB[2]);
                 double[] labB = labD65ToLabD50(labB_d65[0], labB_d65[1], labB_d65[2]);
 
+                labsA[i][0] = labA[0]; labsA[i][1] = labA[1]; labsA[i][2] = labA[2];
+                labsB[i][0] = labB[0]; labsB[i][1] = labB[1]; labsB[i][2] = labB[2];
+
                 double de = deltaE2000(labA, labB);
-                sb.append(String.format(Locale.US, "pos %d : ΔE00 = %.2f\n", i, de));
+                int pts = scoreForDeltaENoFlip(de);
+                totalPoints += pts;
+
+                sbNoFlip.append(String.format(Locale.US,
+                        "pos %d:\n  A L=%.2f a=%.2f b=%.2f\n  B L=%.2f a=%.2f b=%.2f\n  ΔE00 = %.2f  -> %d pts\n\n",
+                        i,
+                        labA[0], labA[1], labA[2],
+                        labB[0], labB[1], labB[2],
+                        de, pts));
             }
 
-            final String message = sb.toString();
+            // Top30 最亮平均：分別計算 bmpA 與 bmpB 的 top30 average，然後比較
+            int[] topA = averageTopBrightest(bmpA, 30);
+            int[] topB = averageTopBrightest(bmpB, 30);
+            double[] topA_d65 = displayP3RgbToLab(topA[0], topA[1], topA[2]);
+            double[] topA_d50 = labD65ToLabD50(topA_d65[0], topA_d65[1], topA_d65[2]);
+            double[] topB_d65 = displayP3RgbToLab(topB[0], topB[1], topB[2]);
+            double[] topB_d50 = labD65ToLabD50(topB_d65[0], topB_d65[1], topB_d65[2]);
+
+            double deTop = deltaE2000(topA_d50, topB_d50);
+            int ptsTop = scoreForDeltaENoFlip(deTop);
+            totalPoints += ptsTop;
+
+            sbNoFlip.append(String.format(Locale.US,
+                    "Top30 brightest average:\n  A R=%d G=%d B=%d  → L(D50)=%.2f a=%.2f b=%.2f\n  B R=%d G=%d B=%d  → L(D50)=%.2f a=%.2f b=%.2f\n  ΔE00 = %.2f  -> %d pts\n\n",
+                    topA[0], topA[1], topA[2], topA_d50[0], topA_d50[1], topA_d50[2],
+                    topB[0], topB[1], topB[2], topB_d50[0], topB_d50[1], topB_d50[2],
+                    deTop, ptsTop));
+
+            // 總分 (10 項 * 10 = 100 滿分)
+            sbNoFlip.append(String.format(Locale.US, "Grand total: %d / 100\n", totalPoints));
+            final String message = sbNoFlip.toString();
+            final int finalScore = totalPoints;
+
             runOnUiThread(() -> {
+                // 內容 TextView（可滑動）
+                TextView contentTv = new TextView(MainActivity.this);
+                contentTv.setText(message);
+                contentTv.setTextSize(14f);
+                contentTv.setTextIsSelectable(true);
+                int pad = (int) (16 * getResources().getDisplayMetrics().density);
+                contentTv.setPadding(pad, pad, pad, pad);
+
+                ScrollView sv = new ScrollView(MainActivity.this);
+                sv.addView(contentTv, new ScrollView.LayoutParams(
+                        ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+
+                // 分數 TextView（單獨顯示並著色）
+                TextView scoreTv = new TextView(MainActivity.this);
+                scoreTv.setText(String.format(Locale.US, "Score: %d / 100", finalScore));
+                scoreTv.setTextSize(18f);
+                scoreTv.setTypeface(null, android.graphics.Typeface.BOLD);
+                scoreTv.setPadding(pad, pad / 2, pad, pad);
+
+                int color;
+                if (finalScore > 88) {
+                    color = Color.parseColor("#4CAF50"); // green
+                } else if (finalScore >= 78 && finalScore <= 88) {
+                    color = Color.parseColor("#FFC107"); // yellow/amber
+                } else {
+                    color = Color.parseColor("#F44336"); // red
+                }
+                scoreTv.setTextColor(color);
+
+                LinearLayout container = new LinearLayout(MainActivity.this);
+                container.setOrientation(LinearLayout.VERTICAL);
+                container.addView(sv, new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+                container.addView(scoreTv, new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
                 new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                        .setTitle("ΔE00 9 positions")
-                        .setMessage(message)
+                        .setTitle("No‑Flip ΔE & Labs")
+                        .setView(container)
                         .setPositiveButton("OK", (d, w) -> d.dismiss())
                         .show();
             });
-            return; // 不執行後續的 flip-mode 處理
+            return; // 不執行後續 flip-mode 處理
         }
 
 
@@ -1139,7 +1238,8 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                         d.dismiss();
                         // 按下 OK 後顯示第四個彈窗：分數
                        // showScoreDialog(f_dePos2, f_dePos5, f_dePos0, f_dePos8);
-                        showScoreDialog(f_dePos2, f_dePos5, f_dePos0, f_dePos8, tvNorm[0], tvNorm[1], tvNorm[2], tvNorm[3]);
+                        showScoreDialog(f_dePos2, f_dePos5, f_dePos0, f_dePos8, tvNorm[0], tvNorm[1], tvNorm[2], tvNorm[3],
+                                normalizedLabs);
                     })
                     .show();
         });
@@ -1533,8 +1633,37 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
     }
 
     // 顯示第四個彈窗：列出每個 patch 的 ΔE、ΔE 分數、TV、TV 差異與 TV 分數，以及小計與總分
+// java
     private void showScoreDialog(double dePos2, double dePos5, double dePos0, double dePos8,
-                                 double tvC, double tvM, double tvY, double tvK) {
+                                 double tvC, double tvM, double tvY, double tvK,
+                                 double[][] normalizedLabs) {
+
+        StringBuilder sb = new StringBuilder();
+
+        // --- 新增：計算 pos6 的 L 與 chroma score（gray patch） ---
+        double[] lab6 = safeLabAt(normalizedLabs, 6); // Lab(D50)
+        double capL6 = lab6[0];
+        double capA6 = lab6[1];
+        double capB6 = lab6[2];
+
+        double deltaL6 = Math.abs(POS6_REF_L - capL6);
+        int lScore6 = scoreForL(deltaL6);
+
+        double deltaCh6 = Math.hypot(POS6_REF_A - capA6, POS6_REF_B - capB6); // sqrt((da)^2 + (db)^2)
+        int chScore6 = scoreForGrayCh(deltaCh6);
+
+        //final int extraPos6 = 2; // 額外 +2 分
+
+        sb.append("\npos 6 (gray) scoring:\n");
+        sb.append(String.format(Locale.US,
+                "  L_ref=%.0f  L_capture=%.2f  ΔL=%.2f  -> %d pts\n",
+                POS6_REF_L, capL6, deltaL6, lScore6));
+        sb.append(String.format(Locale.US,
+                "  a_ref=%.2f  a_capture=%.2f  b_ref=%.2f  b_capture=%.2f  Δch=%.2f  -> %d pts\n",
+                POS6_REF_A, capA6, POS6_REF_B, capB6, deltaCh6, chScore6));
+        //sb.append(String.format(Locale.US, "  Extra fixed pts for pos6: +%d\n", extraPos6));
+        // --- 新增區塊結束 ---
+
         // 參考 TV (C, M, Y, K)
         double[] refTv = new double[]{70.0, 67.0, 63.0, 68.0};
 
@@ -1555,29 +1684,76 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         final int tvsK = scoreForTvDiff(diffK);
         int tvTotal = tvsC + tvsM + tvsY + tvsK; // max 40
 
-        int grandTotal = deTotal + tvTotal;
+        int pos6Total = lScore6 + chScore6 ;
+        int grandTotal = deTotal + tvTotal + pos6Total;
+        double score = (double) grandTotal / 80 * 100;
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("Color ΔE00 scores (pos2,pos5,pos0,pos8):\n\n");
-        sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f  → %d pts\n", dePos2, s2));
-        sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f  → %d pts\n", dePos5, s5));
-        sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f  → %d pts\n", dePos0, s0));
-        sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f  → %d pts\n", dePos8, s8));
+        sb.append("\nColor ΔE00 scores (pos2,pos5,pos0,pos8):\n\n");
+        sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f  -> %d pts\n", dePos2, s2));
+        sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f  -> %d pts\n", dePos5, s5));
+        sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f  -> %d pts\n", dePos0, s0));
+        sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f  -> %d pts\n", dePos8, s8));
         sb.append(String.format(Locale.US, "\nΔE subtotal: %d / 20\n\n", deTotal));
 
         sb.append("Colorimetric TV comparison (pos1,pos4,pos3,pos7):\n\n");
-        sb.append(String.format(Locale.US, "pos 1 (C50) : TV=%.2f  ref=%.1f  Δ=%.2f  → %d pts\n", tvC, refTv[0], diffC, tvsC));
-        sb.append(String.format(Locale.US, "pos 4 (M50) : TV=%.2f  ref=%.1f  Δ=%.2f  → %d pts\n", tvM, refTv[1], diffM, tvsM));
-        sb.append(String.format(Locale.US, "pos 3 (Y50) : TV=%.2f  ref=%.1f  Δ=%.2f  → %d pts\n", tvY, refTv[2], diffY, tvsY));
-        sb.append(String.format(Locale.US, "pos 7 (K50) : TV=%.2f  ref=%.1f  Δ=%.2f  → %d pts\n", tvK, refTv[3], diffK, tvsK));
+        sb.append(String.format(Locale.US, "pos 1 (C50) : TV=%.2f  ref=%.1f  Δ=%.2f  -> %d pts\n", tvC, refTv[0], diffC, tvsC));
+        sb.append(String.format(Locale.US, "pos 4 (M50) : TV=%.2f  ref=%.1f  Δ=%.2f  -> %d pts\n", tvM, refTv[1], diffM, tvsM));
+        sb.append(String.format(Locale.US, "pos 3 (Y50) : TV=%.2f  ref=%.1f  Δ=%.2f  -> %d pts\n", tvY, refTv[2], diffY, tvsY));
+        sb.append(String.format(Locale.US, "pos 7 (K50) : TV=%.2f  ref=%.1f  Δ=%.2f  -> %d pts\n", tvK, refTv[3], diffK, tvsK));
         sb.append(String.format(Locale.US, "\nTV subtotal: %d / 40\n\n", tvTotal));
 
-        sb.append(String.format(Locale.US, "Grand total: %d / 60\n", grandTotal));
+        sb.append(String.format(Locale.US, "Gray subtotal: %d /20 (L=%d + ch=%d )\n", pos6Total, lScore6, chScore6));
+        sb.append(String.format(Locale.US, "\nGrand total: %d /80\n", grandTotal));
+
+
+
+        sb.append(String.format(Locale.US, "\nScore: %.2f \n", score));
+        final String message = sb.toString();
+        final double finalScore = score;
 
         runOnUiThread(() -> {
+            // 內容 TextView（可滑動）
+            TextView contentTv = new TextView(MainActivity.this);
+            contentTv.setText(message);
+            contentTv.setTextSize(14f);
+            contentTv.setTextIsSelectable(true);
+            int pad = (int) (16 * getResources().getDisplayMetrics().density);
+            contentTv.setPadding(pad, pad, pad, pad);
+
+            ScrollView sv = new ScrollView(MainActivity.this);
+            sv.addView(contentTv, new ScrollView.LayoutParams(
+                    ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+
+            // 分數 TextView（單獨顯示並著色）
+            TextView scoreTv = new TextView(MainActivity.this);
+            scoreTv.setText(String.format(Locale.US, "Score: %.2f", finalScore));
+            scoreTv.setTextSize(18f);
+            scoreTv.setTypeface(null, android.graphics.Typeface.BOLD);
+            scoreTv.setPadding(pad, pad / 2, pad, pad);
+
+            int color;
+            if (finalScore > 80.0) {
+                color = Color.parseColor("#4CAF50"); // green
+            } else if (finalScore >= 70.0 && finalScore <= 80.0) {
+                color = Color.parseColor("#FFC107"); // yellow/amber
+            } else if (finalScore < 70.0) {
+                color = Color.parseColor("#F44336"); // red
+            } else {
+                color = Color.RED;
+            }
+            scoreTv.setTextColor(color);
+
+            // 組合 layout
+            LinearLayout container = new LinearLayout(MainActivity.this);
+            container.setOrientation(LinearLayout.VERTICAL);
+            container.addView(sv, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+            container.addView(scoreTv, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
             new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Color Score & TV Score")
-                    .setMessage(sb.toString())
+                    .setTitle("Patch scoring")
+                    .setView(container)
                     .setPositiveButton("OK", (d, w) -> d.dismiss())
                     .show();
         });
@@ -1641,6 +1817,19 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double b = 200.0 * (fy - fz);
 
         return new double[]{L, a, b};
+    }
+
+    // 新增：No‑Flip 模式用的 delta-E -> 分數對應（10..3..0）
+    private int scoreForDeltaENoFlip(double de) {
+        if (de < 1.0) return 10;
+        if (de < 2.0) return 9;
+        if (de < 3.0) return 8;
+        if (de < 4.0) return 7;
+        if (de < 5.0) return 6;
+        if (de < 6.0) return 5;
+        if (de < 7.0) return 4;
+        if (de < 8.0) return 3;
+        return 0;
     }
 
     @Override
