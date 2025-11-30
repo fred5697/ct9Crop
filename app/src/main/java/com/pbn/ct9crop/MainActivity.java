@@ -410,9 +410,9 @@ public class MainActivity extends AppCompatActivity {
                 String title = "Please capture 2nd image";
                 String message;
                 if (secondCaptureFlip) {
-                    message = "請將裝置或被攝物件旋轉 180°，然後再次按下 CAPTURE。\n\n第一張已暫存。";
+                    message = "Flip the 3x3 grid and Capture\n\n請將裝置或被攝物件旋轉 180°，然後再次按下 CAPTURE。\n\n第一張已暫存。";
                 } else {
-                    message = "請直接再次按下 CAPTURE 拍攝第二張（不要翻轉裝置）。\n\n第一張已暫存。";
+                    message = "請直接再次按下 CAPTURE 拍攝第二張（不要翻轉裝置 No-Flip）。\n\n第一張已暫存。";
                 }
                 new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
                         .setTitle(title)

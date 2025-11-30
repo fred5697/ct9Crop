@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.pbn.ct9crop">
 
     <uses-feature android:name="android.hardware.camera" android:required="true" />
@@ -14,7 +15,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="CT9 Crop"
         android:requestLegacyExternalStorage="true"
-        android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
+        android:theme="@style/Theme.AppCompat.Light.DarkActionBar"
+        tools:targetApi="23">
         <activity
             android:name=".MainActivity"
             android:exported="true"
