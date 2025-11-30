@@ -1,6 +1,6 @@
 // MainActivity.java
 package com.pbn.ct9crop;
-
+import android.app.Application;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;

@@ -8,14 +8,42 @@ plugins {
 
 android {
     namespace 'com.pbn.ct9crop'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.pbn.ct9crop"
         minSdk 21
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        targetSdk 35
+        versionCode 9
+        versionName "1.9"
+
+        // This block is different from the one you use to link Gradle
+        // to your CMake or ndk-build script.
+        externalNativeBuild {
+            // For ndk-build, instead use the ndkBuild block.
+            cmake {
+                // Passes optional arguments to CMake.
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+            }
+
+        }
+    }
+
+    ndkVersion "29.0.14206865"
+
+    defaultConfig {
+        // 可選：限制要打包的 ABI（減少出問題的 ABI）
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
+    }
+
+    // 保留或調整 jniLibs 打包策略供測試
+    packagingOptions {
+        jniLibs {
+            // 嘗試 true/false 看哪個組合在你的目標裝置上不會出錯
+            useLegacyPackaging true
+        }
     }
 
     buildTypes {
