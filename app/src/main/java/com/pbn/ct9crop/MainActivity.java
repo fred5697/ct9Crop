@@ -93,6 +93,9 @@ public class MainActivity extends AppCompatActivity {
     // 新增類成員：控制第二張是否採用 180° 翻轉配對取樣（預設 true，原行為）
     private boolean secondCaptureFlip = true;
 
+    private Button flipModeButton;
+    private Button noFlipModeButton;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -107,24 +110,32 @@ public class MainActivity extends AppCompatActivity {
         frameOverlay = findViewById(R.id.frameOverlay);
         statusText = findViewById(R.id.statusText);
         captureButton = findViewById(R.id.captureButton);
+        flipModeButton = findViewById(R.id.flipModeButton);
+        noFlipModeButton = findViewById(R.id.noFlipModeButton);
 
         cameraExecutor = Executors.newSingleThreadExecutor();
 
-        //captureButton.setOnClickListener(v -> captureImage());
-
-        // captureButton 已存在的點擊行為保持不變
+        // captureButton click handler
         captureButton.setOnClickListener(v -> captureImage());
 
-        // 長按 captureButton 切換第二拍攝模式（翻轉 / 不翻轉）
-        captureButton.setOnLongClickListener(v -> {
-            secondCaptureFlip = !secondCaptureFlip;
-            String modeText = secondCaptureFlip ? "Flip sampling (rotate 180° for 2nd)" : "No-flip sampling (no rotation for 2nd)";
-            Toast.makeText(MainActivity.this, "Second-capture mode: " + modeText, Toast.LENGTH_SHORT).show();
-            // 更新狀態欄提示使用者目前模式
-            statusText.setText("Mode: " + (secondCaptureFlip ? "Flip" : "No-flip") + " — Align 3x3 grid");
-            statusText.setBackgroundColor(0x80000000);
-            return true; // 表示已消耗長按事件
+        // Flip mode button
+        flipModeButton.setOnClickListener(v -> {
+            secondCaptureFlip = true;
+            updateModeButtons();
+            Toast.makeText(MainActivity.this, "Mode: Flip (rotate 180° for 2nd)", Toast.LENGTH_SHORT).show();
+            statusText.setText("Mode: Flip — Align 3x3 grid");
         });
+
+        // No-flip mode button
+        noFlipModeButton.setOnClickListener(v -> {
+            secondCaptureFlip = false;
+            updateModeButtons();
+            Toast.makeText(MainActivity.this, "Mode: No-flip (no rotation)", Toast.LENGTH_SHORT).show();
+            statusText.setText("Mode: No-flip — Align 3x3 grid");
+        });
+
+        // Initialize button states
+        updateModeButtons();
 
         // Draw square frame overlay after view is laid out
         previewView.post(() -> drawSquareFrame());
@@ -133,6 +144,20 @@ public class MainActivity extends AppCompatActivity {
             startCamera();
         } else {
             requestPermissions();
+        }
+    }
+
+    private void updateModeButtons() {
+        if (secondCaptureFlip) {
+            flipModeButton.setBackgroundColor(0xFF4CAF50);  // Green for active
+            flipModeButton.setTextColor(Color.WHITE);
+            noFlipModeButton.setBackgroundColor(0xFF757575);  // Gray for inactive
+            noFlipModeButton.setTextColor(Color.LTGRAY);
+        } else {
+            flipModeButton.setBackgroundColor(0xFF757575);  // Gray for inactive
+            flipModeButton.setTextColor(Color.LTGRAY);
+            noFlipModeButton.setBackgroundColor(0xFF4CAF50);  // Green for active
+            noFlipModeButton.setTextColor(Color.WHITE);
         }
     }
 
