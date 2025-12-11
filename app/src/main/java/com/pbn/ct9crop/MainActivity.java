@@ -952,6 +952,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             final String message = sbNoFlip.toString();
             final int finalScore = totalPoints;
 
+
             runOnUiThread(() -> {
                 // Launch ResultsActivity with single page for No-Flip mode
                 Intent intent = new Intent(MainActivity.this, ResultsActivity.class);
@@ -965,7 +966,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                 intent.putExtra("page4_content", "");
                 startActivity(intent);
             });
-            return; // 不執行後續 flip-mode 處理
+            return ; // 不執行後續 flip-mode 處理
         }
 
 
@@ -2028,13 +2029,15 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         sb.append(String.format(Locale.US, "Gray subtotal = %d / 20\n\n", graySum));
 
         int total = solidSum + tvSum + graySum;
+        float totalT = (float) total /80 * 100;
         sb.append(String.format(Locale.US, "=== TOTAL SCORE: %d / 80 ===\n", total));
+        sb.append(String.format(Locale.US, "=== TOTAL SCORE: %.2f  ===\n", totalT));
 
         // Color based on score
         String scoreColor;
-        if (total >= 80) {
+        if (totalT >= 80) {
             scoreColor = "🟢 EXCELLENT";
-        } else if (total >= 70) {
+        } else if (totalT >= 70) {
             scoreColor = "🟡 GOOD";
         } else {
             scoreColor = "🔴 NEEDS IMPROVEMENT";
