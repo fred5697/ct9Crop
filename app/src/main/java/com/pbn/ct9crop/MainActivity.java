@@ -2,6 +2,7 @@
 package com.pbn.ct9crop;
 import android.app.Application;
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -44,6 +45,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import com.pbn.ct9crop.R;
+import com.pbn.ct9crop.ResultsActivity;
 import android.view.KeyEvent;
 import androidx.camera.core.Camera;
 import android.widget.SeekBar;
@@ -926,47 +928,17 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             final int finalScore = totalPoints;
 
             runOnUiThread(() -> {
-                // 內容 TextView（可滑動）
-                TextView contentTv = new TextView(MainActivity.this);
-                contentTv.setText(message);
-                contentTv.setTextSize(14f);
-                contentTv.setTextIsSelectable(true);
-                int pad = (int) (16 * getResources().getDisplayMetrics().density);
-                contentTv.setPadding(pad, pad, pad, pad);
-
-                ScrollView sv = new ScrollView(MainActivity.this);
-                sv.addView(contentTv, new ScrollView.LayoutParams(
-                        ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
-
-                // 分數 TextView（單獨顯示並著色）
-                TextView scoreTv = new TextView(MainActivity.this);
-                scoreTv.setText(String.format(Locale.US, "Score: %d / 100", finalScore));
-                scoreTv.setTextSize(18f);
-                scoreTv.setTypeface(null, android.graphics.Typeface.BOLD);
-                scoreTv.setPadding(pad, pad / 2, pad, pad);
-
-                int color;
-                if (finalScore > 88) {
-                    color = Color.parseColor("#4CAF50"); // green
-                } else if (finalScore >= 78 && finalScore <= 88) {
-                    color = Color.parseColor("#FFC107"); // yellow/amber
-                } else {
-                    color = Color.parseColor("#F44336"); // red
-                }
-                scoreTv.setTextColor(color);
-
-                LinearLayout container = new LinearLayout(MainActivity.this);
-                container.setOrientation(LinearLayout.VERTICAL);
-                container.addView(sv, new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-                container.addView(scoreTv, new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-                new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                        .setTitle("No‑Flip ΔE & Labs")
-                        .setView(container)
-                        .setPositiveButton("OK", (d, w) -> d.dismiss())
-                        .show();
+                // Launch ResultsActivity with single page for No-Flip mode
+                Intent intent = new Intent(MainActivity.this, ResultsActivity.class);
+                intent.putExtra("page1_title", "No-Flip ΔE & Labs");
+                intent.putExtra("page1_content", message);
+                intent.putExtra("page2_title", "");
+                intent.putExtra("page2_content", "");
+                intent.putExtra("page3_title", "");
+                intent.putExtra("page3_content", "");
+                intent.putExtra("page4_title", "");
+                intent.putExtra("page4_content", "");
+                startActivity(intent);
             });
             return; // 不執行後續 flip-mode 處理
         }
@@ -1026,17 +998,11 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         }
 
         final int[] finalTopAvg = topAvg; // for lambda
+        final String page1Content = sb.toString();
 
         runOnUiThread(() -> {
-            new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Averaged RGB & Lab (D50)")
-                    .setMessage(sb.toString())
-                    .setPositiveButton("OK", (d, w) -> {
-                        d.dismiss();
-                        // 按下 OK 後顯示正規化結果的第二個對話視窗
-                        showNormalizedResultsDialog(avgList, finalTopAvg);
-                    })
-                    .show();
+            // Generate all 4 pages and launch ResultsActivity
+            launchResultsActivity(avgList, finalTopAvg, page1Content);
         });
     }
 
@@ -1830,6 +1796,227 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (de < 7.0) return 4;
         if (de < 8.0) return 3;
         return 0;
+    }
+
+    // Generate all 4 pages of content and launch ResultsActivity
+    private void launchResultsActivity(int[][] avgList, int[] topAvg, String page1Content) {
+        if (avgList == null || avgList.length == 0) return;
+
+        // PAGE 2: Normalized results
+        final double targetR = 233.0;
+        final double targetG = 231.0;
+        final double targetB = 236.0;
+
+        double[] scale = new double[3];
+        scale[0] = topAvg[0] > 0 ? (targetR / (double) topAvg[0]) : 1.0;
+        scale[1] = topAvg[1] > 0 ? (targetG / (double) topAvg[1]) : 1.0;
+        scale[2] = topAvg[2] > 0 ? (targetB / (double) topAvg[2]) : 1.0;
+
+        StringBuilder page2Sb = new StringBuilder();
+        page2Sb.append("Normalized results (white mapped to ");
+        page2Sb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f", targetR, targetG, targetB));
+        page2Sb.append(")\n\n");
+
+        double[][] normalizedLabs = new double[avgList.length][3];
+        double[][] originalLabs = new double[avgList.length][3];
+
+        for (int i = 0; i < avgList.length; i++) {
+            int orR = avgList[i][0];
+            int orG = avgList[i][1];
+            int orB = avgList[i][2];
+
+            // Original Lab(D50)
+            double[] labD65_orig = displayP3RgbToLab(orR, orG, orB);
+            double[] labD50_orig = labD65ToLabD50(labD65_orig[0], labD65_orig[1], labD65_orig[2]);
+            originalLabs[i][0] = labD50_orig[0];
+            originalLabs[i][1] = labD50_orig[1];
+            originalLabs[i][2] = labD50_orig[2];
+
+            // Normalized RGB
+            int nR = (int) Math.round(orR * scale[0]);
+            int nG = (int) Math.round(orG * scale[1]);
+            int nB = (int) Math.round(orB * scale[2]);
+
+            nR = Math.max(0, Math.min(255, nR));
+            nG = Math.max(0, Math.min(255, nG));
+            nB = Math.max(0, Math.min(255, nB));
+
+            double[] labD65 = displayP3RgbToLab(nR, nG, nB);
+            double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
+
+            normalizedLabs[i][0] = labD50[0];
+            normalizedLabs[i][1] = labD50[1];
+            normalizedLabs[i][2] = labD50[2];
+
+            page2Sb.append(String.format(Locale.US,
+                    "pos %d -> R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    i, nR, nG, nB, labD50[0], labD50[1], labD50[2]));
+        }
+
+        // White reference
+        int whiteR = (int) Math.round(topAvg[0] * scale[0]);
+        int whiteG = (int) Math.round(topAvg[1] * scale[1]);
+        int whiteB = (int) Math.round(topAvg[2] * scale[2]);
+        whiteR = Math.max(0, Math.min(255, whiteR));
+        whiteG = Math.max(0, Math.min(255, whiteG));
+        whiteB = Math.max(0, Math.min(255, whiteB));
+
+        double[] whiteLabD65 = displayP3RgbToLab(whiteR, whiteG, whiteB);
+        double[] whiteLabD50 = labD65ToLabD50(whiteLabD65[0], whiteLabD65[1], whiteLabD65[2]);
+
+        page2Sb.append("\nNormalized white (after scaling):\n");
+        page2Sb.append(String.format(Locale.US,
+                "R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
+
+        double[] origWhiteLabD65 = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
+        double[] origWhiteLabD50 = labD65ToLabD50(origWhiteLabD65[0], origWhiteLabD65[1], origWhiteLabD65[2]);
+
+        // PAGE 3: Delta-E 2000 & TV results
+        double[] cyanRef = new double[]{56.0, -27.0, -46.0};
+        double[] magRef  = new double[]{48.0,  72.0,  -3.0};
+        double[] yelRef  = new double[]{89.0,  -1.0,  96.0};
+        double[] blkRef  = new double[]{16.0,  0.1,   0.1};
+
+        StringBuilder page3Sb = new StringBuilder();
+        page3Sb.append("Delta-E 2000 results (normalized):\n\n");
+
+        double dePos2 = deltaE2000(safeLabAt(normalizedLabs, 2), cyanRef);
+        double dePos5 = deltaE2000(safeLabAt(normalizedLabs, 5), magRef);
+        double dePos0 = deltaE2000(safeLabAt(normalizedLabs, 0), yelRef);
+        double dePos8 = deltaE2000(safeLabAt(normalizedLabs, 8), blkRef);
+
+        page3Sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2));
+        page3Sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5));
+        page3Sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0));
+        page3Sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8));
+
+        double[] tvNorm = computeCmyk50TvFromLabs(normalizedLabs, whiteLabD50);
+        page3Sb.append("\nColorimetric Tone Value (50% CMYK) [normalized]:\n");
+        page3Sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV = %.2f %%\n", tvNorm[0]));
+        page3Sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV = %.2f %%\n", tvNorm[1]));
+        page3Sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV = %.2f %%\n", tvNorm[2]));
+        page3Sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV = %.2f %%\n", tvNorm[3]));
+
+        double[] lab6_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 6));
+        double[] lab7_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 7));
+        double[] lab8_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 8));
+
+        page3Sb.append("\nUnnormalized (raw) results:\n\n");
+
+        double dePos2_u = deltaE2000(safeLabAt(originalLabs, 2), cyanRef);
+        double dePos5_u = deltaE2000(safeLabAt(originalLabs, 5), magRef);
+        double dePos0_u = deltaE2000(safeLabAt(originalLabs, 0), yelRef);
+        double dePos8_u = deltaE2000(safeLabAt(originalLabs, 8), blkRef);
+
+        page3Sb.append("\nPositions 6,7,8 as Lab (D65) - suitable for P3/D65:\n");
+        page3Sb.append(String.format(Locale.US, "pos 6 : L=%.2f a=%.2f b=%.2f\n", lab6_d65[0], lab6_d65[1], lab6_d65[2]));
+        page3Sb.append(String.format(Locale.US, "pos 7 : L=%.2f a=%.2f b=%.2f\n", lab7_d65[0], lab7_d65[1], lab7_d65[2]));
+        page3Sb.append(String.format(Locale.US, "pos 8 : L=%.2f a=%.2f b=%.2f\n", lab8_d65[0], lab8_d65[1], lab8_d65[2]));
+
+        page3Sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2_u));
+        page3Sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5_u));
+        page3Sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0_u));
+        page3Sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8_u));
+
+        double[] tvRaw = computeCmyk50TvFromLabs(originalLabs, origWhiteLabD50);
+        page3Sb.append("\nColorimetric Tone Value (50% CMYK) [raw]:\n");
+        page3Sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV = %.2f %%\n", tvRaw[0]));
+        page3Sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV = %.2f %%\n", tvRaw[1]));
+        page3Sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV = %.2f %%\n", tvRaw[2]));
+        page3Sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV = %.2f %%\n", tvRaw[3]));
+
+        // PAGE 4: Score
+        String page4Content = generateScoreContent(dePos2, dePos5, dePos0, dePos8, tvNorm, normalizedLabs);
+
+        // Launch ResultsActivity
+        Intent intent = new Intent(MainActivity.this, ResultsActivity.class);
+        intent.putExtra("page1_title", "Averaged RGB & Lab (D50)");
+        intent.putExtra("page1_content", page1Content);
+        intent.putExtra("page2_title", "Normalized RGB & Lab (D50)");
+        intent.putExtra("page2_content", page2Sb.toString());
+        intent.putExtra("page3_title", "Delta-E 2000 & TV results");
+        intent.putExtra("page3_content", page3Sb.toString());
+        intent.putExtra("page4_title", "Score");
+        intent.putExtra("page4_content", page4Content);
+        startActivity(intent);
+    }
+
+    // Generate score page content
+    private String generateScoreContent(double dePos2, double dePos5, double dePos0, double dePos8,
+                                       double[] tvNorm, double[][] normalizedLabs) {
+        StringBuilder sb = new StringBuilder();
+
+        // Gray patch scoring
+        double[] lab6 = safeLabAt(normalizedLabs, 6);
+        double capL6 = lab6[0];
+        double capA6 = lab6[1];
+        double capB6 = lab6[2];
+
+        double deltaL6 = Math.abs(POS6_REF_L - capL6);
+        int lScore6 = scoreForL(deltaL6);
+
+        double deltaCh6 = Math.hypot(POS6_REF_A - capA6, POS6_REF_B - capB6);
+        int chScore6 = scoreForGrayCh(deltaCh6);
+
+        sb.append("=== SCORING ===\n\n");
+        sb.append("--- Solid CMYK Delta-E ---\n");
+        int sc2 = scoreForDelta(dePos2);
+        int sc5 = scoreForDelta(dePos5);
+        int sc0 = scoreForDelta(dePos0);
+        int sc8 = scoreForDelta(dePos8);
+
+        sb.append(String.format(Locale.US, "pos 2 (Cyan)    : ΔE=%.2f → %d pts\n", dePos2, sc2));
+        sb.append(String.format(Locale.US, "pos 5 (Magenta) : ΔE=%.2f → %d pts\n", dePos5, sc5));
+        sb.append(String.format(Locale.US, "pos 0 (Yellow)  : ΔE=%.2f → %d pts\n", dePos0, sc0));
+        sb.append(String.format(Locale.US, "pos 8 (Black)   : ΔE=%.2f → %d pts\n", dePos8, sc8));
+
+        int solidSum = sc2 + sc5 + sc0 + sc8;
+        sb.append(String.format(Locale.US, "Solid subtotal = %d / 20\n\n", solidSum));
+
+        sb.append("--- 50%% CMYK TV ---\n");
+        double[] refTV = new double[]{70.0, 67.0, 63.0, 68.0};
+        double diffC = Math.abs(tvNorm[0] - refTV[0]);
+        double diffM = Math.abs(tvNorm[1] - refTV[1]);
+        double diffY = Math.abs(tvNorm[2] - refTV[2]);
+        double diffK = Math.abs(tvNorm[3] - refTV[3]);
+
+        int scC = scoreForTvDiff(diffC);
+        int scM = scoreForTvDiff(diffM);
+        int scY = scoreForTvDiff(diffY);
+        int scK = scoreForTvDiff(diffK);
+
+        sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV=%.1f (ref=70) diff=%.1f → %d pts\n", tvNorm[0], diffC, scC));
+        sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV=%.1f (ref=67) diff=%.1f → %d pts\n", tvNorm[1], diffM, scM));
+        sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV=%.1f (ref=63) diff=%.1f → %d pts\n", tvNorm[2], diffY, scY));
+        sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV=%.1f (ref=68) diff=%.1f → %d pts\n", tvNorm[3], diffK, scK));
+
+        int tvSum = scC + scM + scY + scK;
+        sb.append(String.format(Locale.US, "TV subtotal = %d / 40\n\n", tvSum));
+
+        sb.append("--- Gray Patch (pos 6) ---\n");
+        sb.append(String.format(Locale.US, "Capture L=%.2f (ref=%.1f) ΔL=%.2f → %d pts\n", capL6, POS6_REF_L, deltaL6, lScore6));
+        sb.append(String.format(Locale.US, "Capture a=%.2f b=%.2f (ref a=%.1f b=%.1f)\n", capA6, capB6, POS6_REF_A, POS6_REF_B));
+        sb.append(String.format(Locale.US, "Δch=%.2f → %d pts\n", deltaCh6, chScore6));
+
+        int graySum = lScore6 + chScore6;
+        sb.append(String.format(Locale.US, "Gray subtotal = %d / 20\n\n", graySum));
+
+        int total = solidSum + tvSum + graySum;
+        sb.append(String.format(Locale.US, "=== TOTAL SCORE: %d / 80 ===\n", total));
+
+        // Color based on score
+        String scoreColor;
+        if (total >= 80) {
+            scoreColor = "🟢 EXCELLENT";
+        } else if (total >= 70) {
+            scoreColor = "🟡 GOOD";
+        } else {
+            scoreColor = "🔴 NEEDS IMPROVEMENT";
+        }
+        sb.append("\n").append(scoreColor);
+
+        return sb.toString();
     }
 
     @Override

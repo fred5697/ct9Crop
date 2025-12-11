@@ -28,22 +28,19 @@ android {
             }
 
         }
-    }
-
-    ndkVersion "29.0.14206865"
-
-    defaultConfig {
         // 可選：限制要打包的 ABI（減少出問題的 ABI）
         ndk {
             abiFilters "arm64-v8a", "armeabi-v7a"
         }
     }
 
+    ndkVersion "29.0.14206865"
+
     // 保留或調整 jniLibs 打包策略供測試
     packagingOptions {
         jniLibs {
             // 嘗試 true/false 看哪個組合在你的目標裝置上不會出錯
-            useLegacyPackaging true
+            useLegacyPackaging false
         }
     }
 
@@ -84,10 +81,18 @@ dependencies {
     implementation libs.androidx.camera.lifecycle
     implementation libs.androidx.camera.view
 
+    // ViewPager2 for swipeable pages
+    implementation 'androidx.viewpager2:viewpager2:1.0.0'
+
     // Add this line for Material3
     implementation libs.material.v1100
 
 
     // Guava for CameraX
     implementation libs.guava
+
+    // Test dependencies
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
