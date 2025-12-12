@@ -1065,18 +1065,34 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (avgList == null || avgList.length == 0) return;
 
         // 目標白色（B = 236）
-        final double targetR = 233.0;
-        final double targetG = 231.0;
-        final double targetB = 236.0;
+        //final double targetR = 233.0;
+        //final double targetG = 231.0;
+        //final double targetB = 236.0;
+
+
+
+        double maxS1 = Math.max(topAvg[0],topAvg[1]);
+        double maxS2 = Math.max(maxS1,topAvg[2]);
+        double S = 245/maxS2;
+
+        final double targetR = S * (double) topAvg[0];
+        final double targetG = S * (double) topAvg[1];
+        final double targetB = S * (double) topAvg[2];
+
+        double Cw = (targetR + targetG + targetB)/3;
+
+        final double Cr = S;
+        final double Cg = S;
+        final double Cb = S;
 
         double[] scale = new double[3];
-        scale[0] = topAvg[0] > 0 ? (targetR / (double) topAvg[0]) : 1.0;
-        scale[1] = topAvg[1] > 0 ? (targetG / (double) topAvg[1]) : 1.0;
-        scale[2] = topAvg[2] > 0 ? (targetB / (double) topAvg[2]) : 1.0;
+        scale[0] = S;
+        scale[1] = S;
+        scale[2] = S;
 
         StringBuilder nsb = new StringBuilder();
-        nsb.append("Normalized results (white mapped to ");
-        nsb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f", targetR, targetG, targetB));
+        nsb.append("Normalized results 1094 (white mapped to ");
+        nsb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f Cr=%.2f Cg=%.2f Cb=%.2f", targetR, targetG, targetB, Cr,Cg,Cb));
         nsb.append(")\n\n");
 
         // 存放每個位置正規化後的 Lab(D50)
@@ -1098,9 +1114,9 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             originalLabs[i][2] = labD50_orig[2];
 
             // 正規化 RGB
-            int nR = (int) Math.round(orR * scale[0]);
-            int nG = (int) Math.round(orG * scale[1]);
-            int nB = (int) Math.round(orB * scale[2]);
+            int nR = (int) Math.round(orR * Cr);
+            int nG = (int) Math.round(orG * Cg);
+            int nB = (int) Math.round(orB * Cb);
 
             nR = Math.max(0, Math.min(255, nR));
             nG = Math.max(0, Math.min(255, nG));
@@ -1119,9 +1135,9 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         }
 
         // 顯示正規化後的白參考值（經同樣縮放）
-        int whiteR = (int) Math.round(topAvg[0] * scale[0]);
-        int whiteG = (int) Math.round(topAvg[1] * scale[1]);
-        int whiteB = (int) Math.round(topAvg[2] * scale[2]);
+        int whiteR = (int) Math.round(topAvg[0] * Cr);
+        int whiteG = (int) Math.round(topAvg[1] * Cg);
+        int whiteB = (int) Math.round(topAvg[2] * Cb);
         whiteR = Math.max(0, Math.min(255, whiteR));
         whiteG = Math.max(0, Math.min(255, whiteG));
         whiteB = Math.max(0, Math.min(255, whiteB));
@@ -1129,7 +1145,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double[] whiteLabD65 = displayP3RgbToLab(whiteR, whiteG, whiteB);
         double[] whiteLabD50 = labD65ToLabD50(whiteLabD65[0], whiteLabD65[1], whiteLabD65[2]);
 
-        nsb.append("\nNormalized white (after scaling):\n");
+        nsb.append("\nNormalized white 1148 (after scaling):\n");
         nsb.append(String.format(Locale.US,
                 "R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
                 whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
@@ -1829,6 +1845,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (avgList == null || avgList.length == 0) return;
 
         // PAGE 2: Normalized results
+       /*
         final double targetR = 233.0;
         final double targetG = 231.0;
         final double targetB = 236.0;
@@ -1837,10 +1854,30 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         scale[0] = topAvg[0] > 0 ? (targetR / (double) topAvg[0]) : 1.0;
         scale[1] = topAvg[1] > 0 ? (targetG / (double) topAvg[1]) : 1.0;
         scale[2] = topAvg[2] > 0 ? (targetB / (double) topAvg[2]) : 1.0;
+*/
+        double maxS1 = Math.max(topAvg[0],topAvg[1]);
+        double maxS2 = Math.max(maxS1,topAvg[2]);
+        double S = 245/maxS2;
+
+        final double targetR = S * (double) topAvg[0];
+        final double targetG = S * (double) topAvg[1];
+        final double targetB = S * (double) topAvg[2];
+
+        double Cw = (targetR + targetG + targetB)/3;
+
+        final double Cr = S;
+        final double Cg = S;
+        final double Cb = S;
+
+        double[] scale = new double[3];
+        scale[0] = S;
+        scale[1] = S;
+        scale[2] = S;
+
 
         StringBuilder page2Sb = new StringBuilder();
-        page2Sb.append("Normalized results (white mapped to ");
-        page2Sb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f", targetR, targetG, targetB));
+        page2Sb.append("Normalized results 1879 (white mapped to ");
+        page2Sb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f Cr=%.2f Cg=%.2f Cb=%.2f", targetR, targetG, targetB, Cr,Cg,Cb));
         page2Sb.append(")\n\n");
 
         double[][] normalizedLabs = new double[avgList.length][3];
@@ -1859,9 +1896,9 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             originalLabs[i][2] = labD50_orig[2];
 
             // Normalized RGB
-            int nR = (int) Math.round(orR * scale[0]);
-            int nG = (int) Math.round(orG * scale[1]);
-            int nB = (int) Math.round(orB * scale[2]);
+            int nR = (int) Math.round(orR * Cr);
+            int nG = (int) Math.round(orG * Cg);
+            int nB = (int) Math.round(orB * Cb);
 
             nR = Math.max(0, Math.min(255, nR));
             nG = Math.max(0, Math.min(255, nG));
@@ -1880,9 +1917,9 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         }
 
         // White reference
-        int whiteR = (int) Math.round(topAvg[0] * scale[0]);
-        int whiteG = (int) Math.round(topAvg[1] * scale[1]);
-        int whiteB = (int) Math.round(topAvg[2] * scale[2]);
+        int whiteR = (int) Math.round(topAvg[0] * Cr);
+        int whiteG = (int) Math.round(topAvg[1] * Cg);
+        int whiteB = (int) Math.round(topAvg[2] * Cb);
         whiteR = Math.max(0, Math.min(255, whiteR));
         whiteG = Math.max(0, Math.min(255, whiteG));
         whiteB = Math.max(0, Math.min(255, whiteB));
@@ -1890,7 +1927,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double[] whiteLabD65 = displayP3RgbToLab(whiteR, whiteG, whiteB);
         double[] whiteLabD50 = labD65ToLabD50(whiteLabD65[0], whiteLabD65[1], whiteLabD65[2]);
 
-        page2Sb.append("\nNormalized white (after scaling):\n");
+        page2Sb.append("\nNormalized white 1930 (after scaling):\n");
         page2Sb.append(String.format(Locale.US,
                 "R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
                 whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
@@ -1907,22 +1944,43 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         StringBuilder page3Sb = new StringBuilder();
         page3Sb.append("Delta-E 2000 results (normalized):\n\n");
 
-        double dePos2 = deltaE2000(safeLabAt(normalizedLabs, 2), cyanRef);
-        double dePos5 = deltaE2000(safeLabAt(normalizedLabs, 5), magRef);
-        double dePos0 = deltaE2000(safeLabAt(normalizedLabs, 0), yelRef);
-        double dePos8 = deltaE2000(safeLabAt(normalizedLabs, 8), blkRef);
+        double[] lab2 = safeLabAt(normalizedLabs, 2);
+        double[] lab5 = safeLabAt(normalizedLabs, 5);
+        double[] lab0 = safeLabAt(normalizedLabs, 0);
+        double[] lab8 = safeLabAt(normalizedLabs, 8);
+        double[] lab6 = safeLabAt(normalizedLabs, 6);
 
-        page3Sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2));
-        page3Sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5));
-        page3Sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0));
-        page3Sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8));
+        double dePos2 = deltaE2000(lab2, cyanRef);
+        double dePos5 = deltaE2000(lab5, magRef);
+        double dePos0 = deltaE2000(lab0, yelRef);
+        double dePos8 = deltaE2000(lab8, blkRef);
+
+        page3Sb.append(String.format(Locale.US, "pos 2 →Cyan:ΔE00 = %.2f", dePos2));
+        page3Sb.append(String.format(Locale.US, "(%.2f ,%.2f ,%.2f)\n", lab2[0], lab2[1], lab2[2]));
+        page3Sb.append(String.format(Locale.US, "pos 5 →Magenta:ΔE00 = %.2f", dePos5));
+        page3Sb.append(String.format(Locale.US, "(%.2f ,%.2f ,%.2f)\n", lab5[0], lab5[1], lab5[2]));
+        page3Sb.append(String.format(Locale.US, "pos 0 →Yellow:ΔE00 = %.2f", dePos0));
+        page3Sb.append(String.format(Locale.US, "(%.2f ,%.2f ,%.2f)\n", lab0[0], lab0[1], lab0[2]));
+        page3Sb.append(String.format(Locale.US, "pos 8 →Black:ΔE00 = %.2f", dePos8));
+        page3Sb.append(String.format(Locale.US, "(%.2f ,%.2f ,%.2f)\n", lab8[0], lab8[1], lab8[2]));
+        //page3Sb.append(String.format(Locale.US, "Gray:ΔE00 = %.2f", dePos6));
+        page3Sb.append(String.format(Locale.US, "pos 6 →Gray:(%.2f ,%.2f ,%.2f)\n", lab6[0], lab8[1], lab8[2]));
+
+        double[] lab1 = safeLabAt(normalizedLabs, 1);
+        double[] lab4 = safeLabAt(normalizedLabs, 4);
+        double[] lab3 = safeLabAt(normalizedLabs, 3);
+        double[] lab7 = safeLabAt(normalizedLabs, 7);
 
         double[] tvNorm = computeCmyk50TvFromLabs(normalizedLabs, whiteLabD50);
         page3Sb.append("\nColorimetric Tone Value (50% CMYK) [normalized]:\n");
         page3Sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV = %.2f %%\n", tvNorm[0]));
+        //page3Sb.append(String.format(Locale.US, "  Lab = L:%.2f a:%.2f b:%.2f\n", lab1[0], lab1[1], lab1[2]));
         page3Sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV = %.2f %%\n", tvNorm[1]));
+        //page3Sb.append(String.format(Locale.US, "  Lab = L:%.2f a:%.2f b:%.2f\n", lab4[0], lab4[1], lab4[2]));
         page3Sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV = %.2f %%\n", tvNorm[2]));
+        //page3Sb.append(String.format(Locale.US, "  Lab = L:%.2f a:%.2f b:%.2f\n", lab3[0], lab3[1], lab3[2]));
         page3Sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV = %.2f %%\n", tvNorm[3]));
+        //page3Sb.append(String.format(Locale.US, "  Lab = L:%.2f a:%.2f b:%.2f\n", lab7[0], lab7[1], lab7[2]));
 
         double[] lab6_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 6));
         double[] lab7_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 7));
