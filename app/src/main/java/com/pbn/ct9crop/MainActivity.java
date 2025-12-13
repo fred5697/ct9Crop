@@ -66,9 +66,31 @@ public class MainActivity extends AppCompatActivity {
     private SeekBar exposureSeekBar;
     private TextView exposureValue;
 
-    private static final double POS6_REF_L = 56.0;
-    private static final double POS6_REF_A = 3.0;
-    private static final double POS6_REF_B = -2.0;
+    private static final double POS6_REF_L = 57.5;
+    public static double POS6_REF_A = 3.0;
+    public static double POS6_REF_B = -2.0;
+
+    public static final double[] whiteLabD50 = {100.0, 0.0, 0.0};
+
+    public static double[] po0D50={0,0,0};
+    public static double[] po1D50={0,0,0};
+    public static double[] po2D50={0,0,0};
+    public static double[] po3D50={0,0,0};
+    public static double[] po4D50={0,0,0};
+    public static double[] po5D50={0,0,0};
+    public static double[] po6D50={0,0,0};
+    public static double[] po7D50={0,0,0};
+    public static double[] po8D50={0,0,0};
+
+
+
+
+
+
+
+
+
+
 
     private int scoreForL(double deltaL) {
         if (deltaL < 2.5) return 10;
@@ -693,7 +715,7 @@ public class MainActivity extends AppCompatActivity {
             double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
 
             sb.append(String.format(Locale.US,
-                    "(%d,%d): R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    "(%d,%d): R=%d G=%d B=%d  →  L =%.1f a =%.1f b =%.1f\n",
                     origX, origY, rgb[0], rgb[1], rgb[2], labD50[0], labD50[1], labD50[2]));
         }
 
@@ -702,7 +724,7 @@ public class MainActivity extends AppCompatActivity {
         double[] topLabD50 = labD65ToLabD50(topLabD65[0], topLabD65[1], topLabD65[2]);
 
         sb.append(String.format(Locale.US,
-                "\nAverage of top 30 brightest pixels:\nR=%d G=%d B=%d  →  L(D50x)=%.1f a(D50)=%.1f b(D50)=%.1f",
+                "\nAverage of top 30 brightest pixels:\nR=%d G=%d B=%d  →  L(D50x)=%.1f a =%.1f b =%.1f",
                 topAvg[0], topAvg[1], topAvg[2], topLabD50[0], topLabD50[1], topLabD50[2]));
 
         final String message = sb.toString();
@@ -942,7 +964,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             totalPoints += ptsTop;
 
             sbNoFlip.append(String.format(Locale.US,
-                    "Top30 brightest average:\n  A R=%d G=%d B=%d  → L(D50)=%.2f a=%.2f b=%.2f\n  B R=%d G=%d B=%d  → L(D50)=%.2f a=%.2f b=%.2f\n  ΔE00 = %.2f  -> %d pts\n\n",
+                    "Top30 brightest average:\n  A R=%d G=%d B=%d  → L =%.2f a=%.2f b=%.2f\n  B R=%d G=%d B=%d  → L =%.2f a=%.2f b=%.2f\n  ΔE00 = %.2f  -> %d pts\n\n",
                     topA[0], topA[1], topA[2], topA_d50[0], topA_d50[1], topA_d50[2],
                     topB[0], topB[1], topB[2], topB_d50[0], topB_d50[1], topB_d50[2],
                     deTop, ptsTop));
@@ -1003,9 +1025,38 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             double[] labD65 = displayP3RgbToLab(avgR, avgG, avgB);
             double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
 
+            if (i==0) {
+            po0D50 = labD50;
+
+            }
+            if (i==1) {
+            po1D50 = labD50;
+            }
+            if (i==2) {
+            po2D50 = labD50;
+                }
+            if (i==3) {
+            po3D50 = labD50;
+                }
+            if (i==4) {
+            po4D50 = labD50;
+                }
+            if (i==5) {
+            po5D50 = labD50;
+                }
+            if (i==6) {
+            po6D50 = labD50;
+                }
+            if (i==7) {
+            po7D50 = labD50;
+                }
+            if (i==8) {
+            po8D50 = labD50;
+               }
+
             sb.append(String.format(Locale.US,
-                    "pos %d (A@%d,%d + B@%d,%d) → R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
-                    i, ax, ay, bx, by, avgR, avgG, avgB, labD50[0], labD50[1], labD50[2]));
+                    "pos %d → R=%d G=%d B=%d → %.1f %.1f %.1f \n",
+                    i,  avgR, avgG, avgB, labD50[0], labD50[1], labD50[2]));
         }
 
         // 產生兩張影像的像素平均圖，並計算 top30 最亮像素平均作為白參考
@@ -1017,7 +1068,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             double[] topLabD50 = labD65ToLabD50(topLabD65[0], topLabD65[1], topLabD65[2]);
 
             sb.append(String.format(Locale.US,
-                    "\nAverage of top 30 brightest pixels (avg image):\nR=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    "\nAverage of top 30 brightest pixels (avg image):\nR=%d G=%d B=%d  →  L=%.1f, a=%.1f, b=%.1f\n",
                     topAvg[0], topAvg[1], topAvg[2], topLabD50[0], topLabD50[1], topLabD50[2]));
 
             if (!avgBmp.isRecycled()) avgBmp.recycle();
@@ -1085,14 +1136,25 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         final double Cg = S;
         final double Cb = S;
 
+        final double CrC = Cw/targetR;
+        final double CgC = Cw/targetG;
+        final double CbC = Cw/targetB;
+
         double[] scale = new double[3];
+        double[] scaleC = new double[3];
+        
         scale[0] = S;
         scale[1] = S;
         scale[2] = S;
 
+        scaleC[0] = CrC;
+        scaleC[1] = CgC;
+        scaleC[2] = CbC;
+
+
         StringBuilder nsb = new StringBuilder();
         nsb.append("Normalized results 1094 (white mapped to ");
-        nsb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f Cr=%.2f Cg=%.2f Cb=%.2f", targetR, targetG, targetB, Cr,Cg,Cb));
+        nsb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f Cr=%.2f Cg=%.2f Cb=%.2f Crc=%.2f Cgc=%.2f Cbc=%.2f", targetR, targetG, targetB, Cr,Cg,Cb, CrC,CgC,CbC));
         nsb.append(")\n\n");
 
         // 存放每個位置正規化後的 Lab(D50)
@@ -1130,7 +1192,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             normalizedLabs[i][2] = labD50[2];
 
             nsb.append(String.format(Locale.US,
-                    "pos %d -> R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    "pos %d -> R=%d G=%d B=%d  →  L =%.1f a =%.1f b =%.1f\n",
                     i, nR, nG, nB, labD50[0], labD50[1], labD50[2]));
         }
 
@@ -1147,7 +1209,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
         nsb.append("\nNormalized white 1148 (after scaling):\n");
         nsb.append(String.format(Locale.US,
-                "R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                "R=%d G=%d B=%d  →  L =%.1f a =%.1f b =%.1f\n",
                 whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
 
         // 同時產生原始白點的 Lab(D50)（未經縮放）
@@ -1177,7 +1239,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
     private void showDeltaEResultsDialog(double[][] normalizedLabs, double[] whiteLabD50, double[][] originalLabs, double[] origWhiteLabD50) {
         if (normalizedLabs == null) return;
 
-        double[] cyanRef = new double[]{56.0, -27.0, -46.0};
+        double[] cyanRef = new double[]{56.0, -27.0, -47.0};
         double[] magRef  = new double[]{48.0,  72.0,  -3.0};
         double[] yelRef  = new double[]{89.0,  -1.0,  96.0};
         double[] blkRef  = new double[]{16.0,  0.1,   0.1};
@@ -1206,6 +1268,10 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double[] lab6_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 6));
         double[] lab7_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 7));
         double[] lab8_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 8));
+        double[] lab2_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 2));
+        double[] lab5_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 5));
+        double[] lab0_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 0));
+
 
         // Unnormalized block
         sb.append("\nUnnormalized (raw) results:\n\n");
@@ -1215,16 +1281,17 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double dePos0_u = deltaE2000(safeLabAt(originalLabs, 0), yelRef);
         double dePos8_u = deltaE2000(safeLabAt(originalLabs, 8), blkRef);
 
-        sb.append("\nPositions 6,7,8 as Lab (D65) - suitable for P3/D65:\n");
-        sb.append(String.format(Locale.US, "pos 6 : L=%.2f a=%.2f b=%.2f\n", lab6_d65[0], lab6_d65[1], lab6_d65[2]));
-        sb.append(String.format(Locale.US, "pos 7 : L=%.2f a=%.2f b=%.2f\n", lab7_d65[0], lab7_d65[1], lab7_d65[2]));
-        sb.append(String.format(Locale.US, "pos 8 : L=%.2f a=%.2f b=%.2f\n", lab8_d65[0], lab8_d65[1], lab8_d65[2]));
-        //
+        sb.append("\nPositions 6,7,8 as Lab (D_65) - suitable for P3/D65:\n");
 
-        sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2_u));
-        sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5_u));
-        sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0_u));
-        sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8_u));
+        sb.append(String.format(Locale.US, "pos 6 : L=%.2f a=%.2f b=%.2f\n", po6D50[0], po6D50[1], po6D50[2]));
+        sb.append(String.format(Locale.US, "pos 7 : L=%.2f a=%.2f b=%.2f\n", po7D50[0], po7D50[1], po7D50[2]));
+        sb.append(String.format(Locale.US, "pos 8 : L=%.2f a=%.2f b=%.2f\n", po8D50[0], po8D50[1], po8D50[2]));
+        //0
+
+        sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos2_u, po2D50[0], po2D50[1], po2D50[2]));
+        sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos5_u, po5D50[0], po5D50[1], po5D50[2]));
+        sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos0_u, po0D50[0], po0D50[1], po0D50[2]));
+        sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos8_u, po8D50[0], po8D50[1], po8D50[2]));
 
         double[] tvRaw = computeCmyk50TvFromLabs(originalLabs, origWhiteLabD50);
         sb.append("\nColorimetric Tone Value (50% CMYK) [raw]:\n");
@@ -1275,9 +1342,9 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (normalizedLabs == null) return;
 
         // 參考 Lab (D50)
-        double[] cyanRef = new double[]{56.0, -37.0, -50.0};
+        double[] cyanRef = new double[]{56.0, -27.0, -47.0};
         double[] magRef  = new double[]{48.0,  75.0,  -4.0};
-        double[] yelRef  = new double[]{89.0,  -4.0,  93.0};
+        double[] yelRef  = new double[]{89.0,  -4.0,  96.0};
         double[] blkRef  = new double[]{16.0,  0.1,   0.1};
 
         StringBuilder sb = new StringBuilder();
@@ -1869,19 +1936,30 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         final double Cg = S;
         final double Cb = S;
 
+        final double CrC = Cw/targetR;
+        final double CgC = Cw/targetG;
+        final double CbC = Cw/targetB;
+
         double[] scale = new double[3];
+        double[] scaleC = new double[3];
+
         scale[0] = S;
         scale[1] = S;
         scale[2] = S;
 
+        scaleC[0] = CrC;
+        scaleC[1] = CgC;
+        scaleC[2] = CbC;
+
 
         StringBuilder page2Sb = new StringBuilder();
         page2Sb.append("Normalized results 1879 (white mapped to ");
-        page2Sb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f Cr=%.2f Cg=%.2f Cb=%.2f", targetR, targetG, targetB, Cr,Cg,Cb));
+        page2Sb.append(String.format(Locale.US, "R=%.0f G=%.0f B=%.0f Cr=%.2f Cg=%.2f Cb =%.2f Crc=%.2f Cgc=%.2f Cbc=%.2f", targetR, targetG, targetB, Cr,Cg,Cb, CrC,CgC,CbC));
         page2Sb.append(")\n\n");
 
         double[][] normalizedLabs = new double[avgList.length][3];
         double[][] originalLabs = new double[avgList.length][3];
+        double[][] originalLabs65 = new double[avgList.length][3];
 
         for (int i = 0; i < avgList.length; i++) {
             int orR = avgList[i][0];
@@ -1894,16 +1972,20 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             originalLabs[i][0] = labD50_orig[0];
             originalLabs[i][1] = labD50_orig[1];
             originalLabs[i][2] = labD50_orig[2];
+            originalLabs65[i][0] = labD65_orig[0];
+            originalLabs65[i][1] = labD65_orig[1];
+            originalLabs65[i][2] = labD65_orig[2];
 
             // Normalized RGB
-            int nR = (int) Math.round(orR * Cr);
-            int nG = (int) Math.round(orG * Cg);
-            int nB = (int) Math.round(orB * Cb);
+            int nR = (int) Math.round(orR * CrC);
+            int nG = (int) Math.round(orG * CgC);
+            int nB = (int) Math.round(orB * CbC);
 
             nR = Math.max(0, Math.min(255, nR));
             nG = Math.max(0, Math.min(255, nG));
             nB = Math.max(0, Math.min(255, nB));
 
+            //double[] labD65 = displayP3RgbToLab(nR, nG, nB);
             double[] labD65 = displayP3RgbToLab(nR, nG, nB);
             double[] labD50 = labD65ToLabD50(labD65[0], labD65[1], labD65[2]);
 
@@ -1912,7 +1994,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
             normalizedLabs[i][2] = labD50[2];
 
             page2Sb.append(String.format(Locale.US,
-                    "pos %d -> R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                    "pos %d-> R=%d G=%d B=%d → %.1f, %.1f, %.1f\n",
                     i, nR, nG, nB, labD50[0], labD50[1], labD50[2]));
         }
 
@@ -1929,16 +2011,22 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
         page2Sb.append("\nNormalized white 1930 (after scaling):\n");
         page2Sb.append(String.format(Locale.US,
-                "R=%d G=%d B=%d  →  L(D50)=%.1f a(D50)=%.1f b(D50)=%.1f\n",
+                "R=%d G=%d B=%d  →  L =%.1f a =%.1f b =%.1f\n",
                 whiteR, whiteG, whiteB, whiteLabD50[0], whiteLabD50[1], whiteLabD50[2]));
 
         double[] origWhiteLabD65 = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
         double[] origWhiteLabD50 = labD65ToLabD50(origWhiteLabD65[0], origWhiteLabD65[1], origWhiteLabD65[2]);
 
-        // PAGE 3: Delta-E 2000 & TV results
+        /*/ PAGE 3: Delta-E 2000 & TV results
         double[] cyanRef = new double[]{56.0, -27.0, -46.0};
         double[] magRef  = new double[]{48.0,  72.0,  -3.0};
         double[] yelRef  = new double[]{89.0,  -1.0,  96.0};
+        double[] blkRef  = new double[]{16.0,  0.1,   0.1};
+*/
+        // 參考 Lab (D50)
+        double[] cyanRef = new double[]{56.0, -27.0, -47.0};
+        double[] magRef  = new double[]{48.0,  75.0,  -4.0};
+        double[] yelRef  = new double[]{89.0,  -4.0,  96.0};
         double[] blkRef  = new double[]{16.0,  0.1,   0.1};
 
         StringBuilder page3Sb = new StringBuilder();
@@ -1949,6 +2037,9 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double[] lab0 = safeLabAt(normalizedLabs, 0);
         double[] lab8 = safeLabAt(normalizedLabs, 8);
         double[] lab6 = safeLabAt(normalizedLabs, 6);
+        double[] labk50 = safeLabAt(normalizedLabs, 7);
+
+        double[] lab2u = safeLabAt(normalizedLabs, 2);
 
         double dePos2 = deltaE2000(lab2, cyanRef);
         double dePos5 = deltaE2000(lab5, magRef);
@@ -1964,7 +2055,8 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         page3Sb.append(String.format(Locale.US, "pos 8 →Black:ΔE00 = %.2f", dePos8));
         page3Sb.append(String.format(Locale.US, "(%.2f ,%.2f ,%.2f)\n", lab8[0], lab8[1], lab8[2]));
         //page3Sb.append(String.format(Locale.US, "Gray:ΔE00 = %.2f", dePos6));
-        page3Sb.append(String.format(Locale.US, "pos 6 →Gray:(%.2f ,%.2f ,%.2f)\n", lab6[0], lab8[1], lab8[2]));
+        page3Sb.append(String.format(Locale.US, "pos 6 →Gray:(%.2f ,%.2f ,%.2f)\n", lab6[0], lab6[1], lab6[2]));
+        page3Sb.append(String.format(Locale.US, "pos 7 →K50:(%.2f ,%.2f ,%.2f)\n", labk50[0], labk50[1], labk50[2]));
 
         double[] lab1 = safeLabAt(normalizedLabs, 1);
         double[] lab4 = safeLabAt(normalizedLabs, 4);
@@ -1985,6 +2077,9 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double[] lab6_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 6));
         double[] lab7_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 7));
         double[] lab8_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 8));
+        double[] lab2_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 2));
+        double[] lab5_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 5));
+        double[] lab0_d65 = labD50ToLabD65(safeLabAt(normalizedLabs, 0));
 
         page3Sb.append("\nUnnormalized (raw) results:\n\n");
 
@@ -1993,15 +2088,17 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double dePos0_u = deltaE2000(safeLabAt(originalLabs, 0), yelRef);
         double dePos8_u = deltaE2000(safeLabAt(originalLabs, 8), blkRef);
 
-        page3Sb.append("\nPositions 6,7,8 as Lab (D65) - suitable for P3/D65:\n");
-        page3Sb.append(String.format(Locale.US, "pos 6 : L=%.2f a=%.2f b=%.2f\n", lab6_d65[0], lab6_d65[1], lab6_d65[2]));
-        page3Sb.append(String.format(Locale.US, "pos 7 : L=%.2f a=%.2f b=%.2f\n", lab7_d65[0], lab7_d65[1], lab7_d65[2]));
-        page3Sb.append(String.format(Locale.US, "pos 8 : L=%.2f a=%.2f b=%.2f\n", lab8_d65[0], lab8_d65[1], lab8_d65[2]));
+        page3Sb.append("\nPositions 6,7,8 as Lab (D50) - suitable for P3/D65:\n");
+        page3Sb.append(String.format(Locale.US, "pos 6 : L=%.2f a=%.2f b=%.2f\n", po6D50[0], po6D50[1], po6D50[2]));
+        page3Sb.append(String.format(Locale.US, "pos 7 : L=%.2f a=%.2f b=%.2f\n", po7D50[0], po7D50[1], po7D50[2]));
+        page3Sb.append(String.format(Locale.US, "pos 8 : L=%.2f a=%.2f b=%.2f\n", po8D50[0], po8D50[1], po8D50[2]));
+        //0
 
-        page3Sb.append(String.format(Locale.US, "pos 2 → Cyan    : ΔE00 = %.2f\n", dePos2_u));
-        page3Sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00 = %.2f\n", dePos5_u));
-        page3Sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00 = %.2f\n", dePos0_u));
-        page3Sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00 = %.2f\n", dePos8_u));
+        page3Sb.append(String.format(Locale.US, "pos 2 → Cyan : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos2_u, po2D50[0], po2D50[1], po2D50[2]));
+        page3Sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos5_u, po5D50[0], po5D50[1], po5D50[2]));
+        page3Sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos0_u, po0D50[0], po0D50[1], po0D50[2]));
+        page3Sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos8_u, po8D50[0], po8D50[1], po8D50[2]));
+
 
         double[] tvRaw = computeCmyk50TvFromLabs(originalLabs, origWhiteLabD50);
         page3Sb.append("\nColorimetric Tone Value (50% CMYK) [raw]:\n");
@@ -2077,6 +2174,10 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
         int tvSum = scC + scM + scY + scK;
         sb.append(String.format(Locale.US, "TV subtotal = %d / 40\n\n", tvSum));
+
+
+        //POS6_REF_A = whiteLabD50[1] /2;
+        //POS6_REF_B = whiteLabD50[2] /2;
 
         sb.append("--- Gray Patch (pos 6) ---\n");
         sb.append(String.format(Locale.US, "Capture L=%.2f (ref=%.1f) ΔL=%.2f → %d pts\n", capL6, POS6_REF_L, deltaL6, lScore6));
