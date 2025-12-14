@@ -58,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
     private PreviewView previewView;
     private ImageView frameOverlay;
     private TextView statusText;
+    private TextView rgbLiveText;
     private Button captureButton;
     private ImageCapture imageCapture;
     private ExecutorService cameraExecutor;
@@ -133,6 +134,7 @@ public class MainActivity extends AppCompatActivity {
         previewView = findViewById(R.id.previewView);
         frameOverlay = findViewById(R.id.frameOverlay);
         statusText = findViewById(R.id.statusText);
+        rgbLiveText = findViewById(R.id.rgbLiveText);
         captureButton = findViewById(R.id.captureButton);
         flipModeButton = findViewById(R.id.flipModeButton);
         noFlipModeButton = findViewById(R.id.noFlipModeButton);
@@ -2115,7 +2117,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         page3Sb.append(String.format(Locale.US, "pos 8 : L=%.2f a=%.2f b=%.2f\n", po8D50[0], po8D50[1], po8D50[2]));
         //0
 
-        page3Sb.append(String.format(Locale.US, "pos 2 → Cyan : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos2_u, po2D50[0], po2D50[1], po2D50[2]));
+        page3Sb.append(String.format(Locale.US, "pos 2 → Cyan   : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos2_u, po2D50[0], po2D50[1], po2D50[2]));
         page3Sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos5_u, po5D50[0], po5D50[1], po5D50[2]));
         page3Sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos0_u, po0D50[0], po0D50[1], po0D50[2]));
         page3Sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos8_u, po8D50[0], po8D50[1], po8D50[2]));

@@ -31,6 +31,20 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
+    <TextView
+        android:id="@+id/rgbLiveText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="#DD000000"
+        android:padding="8dp"
+        android:text="RGB: ---"
+        android:textColor="#00FF00"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_margin="16dp"/>
+
     <ImageView
         android:id="@+id/frameOverlay"
         android:layout_width="match_parent"
