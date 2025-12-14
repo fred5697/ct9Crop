@@ -26,6 +26,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
@@ -1592,13 +1593,44 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                 .build();
 
+        // Image Analysis for live RGB display at center crosshair
+        ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+                .setTargetAspectRatio(aspectRatio)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build();
+
+        imageAnalysis.setAnalyzer(cameraExecutor, new ImageAnalysis.Analyzer() {
+            @Override
+            public void analyze(@NonNull ImageProxy image) {
+                // Sample RGB at center of image
+                Bitmap bitmap = imageProxyToBitmap(image);
+                if (bitmap != null) {
+                    int centerX = bitmap.getWidth() / 2;
+                    int centerY = bitmap.getHeight() / 2;
+
+                    // Sample 5x5 area at center and average
+                    int[] rgb = averageRgbInRegion(bitmap, centerX, centerY, 2);
+
+                    runOnUiThread(() -> {
+                        if (rgbLiveText != null) {
+                            rgbLiveText.setText(String.format(Locale.US,
+                                "RGB: %03d,%03d,%03d", rgb[0], rgb[1], rgb[2]));
+                        }
+                    });
+
+                    bitmap.recycle();
+                }
+                image.close();
+            }
+        });
+
         // Camera selector
         CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
 
         // Unbind previous use-cases and bind new ones, 並取得 Camera 實例
         cameraProvider.unbindAll();
         try {
-            camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
+            camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture, imageAnalysis);
         } catch (Exception e) {
             Log.e(TAG, "Failed to bind camera use cases", e);
             return;

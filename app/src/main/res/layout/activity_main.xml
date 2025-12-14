@@ -37,13 +37,14 @@
         android:layout_height="wrap_content"
         android:background="#DD000000"
         android:padding="8dp"
+        android:layout_marginTop="38dp"
         android:text="RGB: ---"
         android:textColor="#00FF00"
         android:textSize="14sp"
         android:fontFamily="monospace"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/statusText"
         app:layout_constraintStart_toStartOf="parent"
-        android:layout_margin="16dp"/>
+        app:layout_constraintEnd_toEndOf="parent"/>
 
     <ImageView
         android:id="@+id/frameOverlay"
