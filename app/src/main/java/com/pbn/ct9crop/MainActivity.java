@@ -82,6 +82,8 @@ public class MainActivity extends AppCompatActivity {
     public static double[] po7D50={0,0,0};
     public static double[] po8D50={0,0,0};
 
+    public static double[] topLabD50={0,0,0};
+
 
 
 
@@ -454,27 +456,51 @@ public class MainActivity extends AppCompatActivity {
 
         // 在 processCapturedImage(...) 中，修改第一張暫存時的提示文字，依模式提示使用者是否要翻轉裝置
         if (pendingCapturedCropped == null) {
-            pendingCapturedCropped = croppedBitmap; // 儲存第一張（已裁切）
-            runOnUiThread(() -> {
-                String title = "Please capture 2nd image";
-                String message;
-                if (secondCaptureFlip) {
-                    message = "Flip the 3x3 grid and Capture\n\n請將裝置或被攝物件旋轉 180°，然後再次按下 CAPTURE。\n\n第一張已暫存。";
-                } else {
-                    message = "請直接再次按下 CAPTURE 拍攝第二張（不要翻轉裝置 No-Flip）。\n\n第一張已暫存。";
-                }
-                new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                        .setTitle(title)
-                        .setMessage(message)
-                        .setPositiveButton("OK", (d, w) -> {
-                            d.dismiss();
-                            statusText.setText(secondCaptureFlip ? "Rotate 180° and capture 2nd" : "Capture 2nd (no rotation)");
-                            statusText.setBackgroundColor(0xDDFFAA00);
-                            resetCaptureButton();
-                        })
-                        .setCancelable(false)
-                        .show();
-            });
+            // 先檢查第一張的曝光是否足夠
+            int[] brightest = averageTopBrightest(croppedBitmap, 30);
+            int brightestMax = Math.max(brightest[0], Math.max(brightest[1], brightest[2]));
+
+            if (brightestMax < 225) {
+                // 曝光不足，提示使用者調整曝光並重新拍攝
+                final int bMax = brightestMax;
+                if (!croppedBitmap.isRecycled()) croppedBitmap.recycle();
+                runOnUiThread(() -> {
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                            .setTitle("曝光不足 / Insufficient Exposure")
+                            .setMessage(String.format(Locale.getDefault(),
+                                    "偵測到目前最亮 RGB = %d (< 225)。請增加曝光（使用畫面下方滑桿）後重新拍攝。\n\nBrightest RGB = %d (< 230). Please increase exposure and recapture.", bMax, bMax))
+                            .setPositiveButton("OK", (d, w) -> {
+                                // Reset session when OK is clicked
+                                resetSession();
+                                d.dismiss();
+                            })
+                            .setCancelable(false)
+                            .show();
+                });
+            } else {
+                // 曝光足夠，儲存第一張
+                pendingCapturedCropped = croppedBitmap; // 儲存第一張（已裁切）
+                runOnUiThread(() -> {
+                    String title = "Please capture 2nd image";
+                    String message;
+                    if (secondCaptureFlip) {
+                        message = "Flip the 3x3 grid and Capture\n\n請將裝置或被攝物件旋轉 180°，然後再次按下 CAPTURE。\n\n第一張已暫存。";
+                    } else {
+                        message = "請直接再次按下 CAPTURE 拍攝第二張（不要翻轉裝置 No-Flip）。\n\n第一張已暫存。";
+                    }
+                    new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
+                            .setTitle(title)
+                            .setMessage(message)
+                            .setPositiveButton("OK", (d, w) -> {
+                                d.dismiss();
+                                statusText.setText(secondCaptureFlip ? "Rotate 180° and capture 2nd" : "Capture 2nd (no rotation)");
+                                statusText.setBackgroundColor(0xDDFFAA00);
+                                resetCaptureButton();
+                            })
+                            .setCancelable(false)
+                            .show();
+                });
+            }
         } else {
             // 第二張已拍，進行平均、顯示並儲存
             final Bitmap bmpA = pendingCapturedCropped;
@@ -486,29 +512,8 @@ public class MainActivity extends AppCompatActivity {
             // 產生像素平均圖並儲存
             Bitmap avgBmp = averageBitmaps(bmpA, bmpB);
             if (avgBmp != null) {
-                // 計算 top30 最亮平均並檢查是否足夠明亮
-                int[] brightest = averageTopBrightest(avgBmp, 30);
-                int brightestMax = Math.max(brightest[0], Math.max(brightest[1], brightest[2]));
-                if (brightestMax < 200) {
-                    // 不儲存，提示使用者調整曝光並重新拍攝
-                    final int bMax = brightestMax;
-                    if (!avgBmp.isRecycled()) avgBmp.recycle();
-                    pendingCapturedCropped = null;
-                    runOnUiThread(() -> {
-                        new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
-                                .setTitle("曝光不足")
-                                .setMessage(String.format(Locale.getDefault(),
-                                        "偵測到目前最亮 RGB = %d (< 200)。請增加曝光（使用畫面下方滑桿）後重新拍攝。", bMax))
-                                .setPositiveButton("OK", (d, w) -> d.dismiss())
-                                .show();
-                        statusText.setText("Increase exposure and recapture");
-                        statusText.setBackgroundColor(0xDDFF4444);
-                        resetCaptureButton();
-                    });
-                } else {
-                    // 亮度足夠，儲存 avgBmp
-                    saveImage(avgBmp);
-                }
+                // 亮度已在第一張檢查過，直接儲存
+                saveImage(avgBmp);
             }
 
             // 清除暫存並回復 UI
@@ -571,6 +576,22 @@ public class MainActivity extends AppCompatActivity {
 
     private void resetCaptureButton() {
         runOnUiThread(() -> captureButton.setEnabled(true));
+    }
+
+    private void resetSession() {
+        // Clear pending capture
+        if (pendingCapturedCropped != null && !pendingCapturedCropped.isRecycled()) {
+            pendingCapturedCropped.recycle();
+        }
+        pendingCapturedCropped = null;
+
+        // Reset UI state
+        runOnUiThread(() -> {
+            statusText.setText("Align 3x3 grid in frame");
+            statusText.setBackgroundColor(0x80000000);
+            captureButton.setEnabled(true);
+            captureButton.setText("CAPTURE");
+        });
     }
 
     // java
@@ -1292,8 +1313,8 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         sb.append(String.format(Locale.US, "pos 5 → Magenta : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos5_u, po5D50[0], po5D50[1], po5D50[2]));
         sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos0_u, po0D50[0], po0D50[1], po0D50[2]));
         sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos8_u, po8D50[0], po8D50[1], po8D50[2]));
-
-        double[] tvRaw = computeCmyk50TvFromLabs(originalLabs, origWhiteLabD50);
+//topLabD50, origWhiteLabD50
+        double[] tvRaw = computeCmyk50TvFromLabs(originalLabs, topLabD50);
         sb.append("\nColorimetric Tone Value (50% CMYK) [raw]:\n");
         sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV = %.2f %%\n", tvRaw[0]));
         sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV = %.2f %%\n", tvRaw[1]));
@@ -2016,7 +2037,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
         double[] origWhiteLabD65 = displayP3RgbToLab(topAvg[0], topAvg[1], topAvg[2]);
         double[] origWhiteLabD50 = labD65ToLabD50(origWhiteLabD65[0], origWhiteLabD65[1], origWhiteLabD65[2]);
-
+//topAvg
         /*/ PAGE 3: Delta-E 2000 & TV results
         double[] cyanRef = new double[]{56.0, -27.0, -46.0};
         double[] magRef  = new double[]{48.0,  72.0,  -3.0};
