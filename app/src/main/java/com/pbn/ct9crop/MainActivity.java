@@ -932,7 +932,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
     private void showRgbInfoDialogDoubleCapture(Bitmap bmpA, Bitmap bmpB) {
 
         // 在 showRgbInfoDialogDoubleCapture 方法開頭加入此分支
-        if (!secondCaptureFlip) {
+        if (!secondCaptureFlip) {   //No flip mode
             if (bmpA == null || bmpB == null) return;
             int[][] points = gridPointsFromSize(bmpA.getWidth(), bmpA.getHeight());
             final int regionHalf = 20; // 30x30
@@ -1004,6 +1004,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
                 Intent intent = new Intent(MainActivity.this, ResultsActivity.class);
                 intent.putExtra("page1_title", "No-Flip ΔE & Labs");
                 intent.putExtra("page1_content", message);
+                intent.putExtra("page1_score", finalScore);
                 intent.putExtra("page2_title", "");
                 intent.putExtra("page2_content", "");
                 intent.putExtra("page3_title", "");

@@ -22,10 +22,21 @@ public class ResultsActivity extends AppCompatActivity {
     public static class PageData {
         String title;
         String content;
+        int score;
+        boolean hasScore;
 
         public PageData(String title, String content) {
             this.title = title;
             this.content = content;
+            this.score = -1;
+            this.hasScore = false;
+        }
+
+        public PageData(String title, String content, int score) {
+            this.title = title;
+            this.content = content;
+            this.score = score;
+            this.hasScore = true;
         }
     }
 
@@ -43,6 +54,7 @@ public class ResultsActivity extends AppCompatActivity {
         // Get data from intent
         String page1Title = getIntent().getStringExtra("page1_title");
         String page1Content = getIntent().getStringExtra("page1_content");
+        int page1Score = getIntent().getIntExtra("page1_score", -1);
         String page2Title = getIntent().getStringExtra("page2_title");
         String page2Content = getIntent().getStringExtra("page2_content");
         String page3Title = getIntent().getStringExtra("page3_title");
@@ -53,7 +65,11 @@ public class ResultsActivity extends AppCompatActivity {
         pages = new ArrayList<>();
         // Only add non-empty pages
         if (page1Title != null && !page1Title.isEmpty() && page1Content != null && !page1Content.isEmpty()) {
-            pages.add(new PageData(page1Title, page1Content));
+            if (page1Score >= 0) {
+                pages.add(new PageData(page1Title, page1Content, page1Score));
+            } else {
+                pages.add(new PageData(page1Title, page1Content));
+            }
         }
         if (page2Title != null && !page2Title.isEmpty() && page2Content != null && !page2Content.isEmpty()) {
             pages.add(new PageData(page2Title, page2Content));
@@ -145,6 +161,22 @@ public class ResultsActivity extends AppCompatActivity {
             PageData page = pages.get(position);
             holder.pageTitle.setText(page.title);
             holder.pageContent.setText(page.content);
+
+            // Show and color the score indicator if score is available
+            if (page.hasScore) {
+                holder.scoreIndicator.setVisibility(View.VISIBLE);
+                int color;
+                if (page.score > 90) {
+                    color = 0xFF00FF00; // Green
+                } else if (page.score >= 80) {
+                    color = 0xFFFFFF00; // Yellow
+                } else {
+                    color = 0xFFFF0000; // Red
+                }
+                holder.scoreIndicator.getBackground().setTint(color);
+            } else {
+                holder.scoreIndicator.setVisibility(View.GONE);
+            }
         }
 
         @Override
@@ -156,11 +188,13 @@ public class ResultsActivity extends AppCompatActivity {
     private static class ResultsViewHolder extends RecyclerView.ViewHolder {
         TextView pageTitle;
         TextView pageContent;
+        View scoreIndicator;
 
         public ResultsViewHolder(@NonNull View itemView) {
             super(itemView);
             pageTitle = itemView.findViewById(R.id.pageTitle);
             pageContent = itemView.findViewById(R.id.pageContent);
+            scoreIndicator = itemView.findViewById(R.id.scoreIndicator);
         }
     }
 }
