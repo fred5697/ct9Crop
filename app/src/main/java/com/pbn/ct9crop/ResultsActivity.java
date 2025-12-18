@@ -165,6 +165,9 @@ public class ResultsActivity extends AppCompatActivity {
             // Show and color the score indicator if score is available
             if (page.hasScore) {
                 holder.scoreIndicator.setVisibility(View.VISIBLE);
+                holder.scoreValue.setVisibility(View.VISIBLE);
+                holder.scoreValue.setText(String.format("%d/100", page.score));
+
                 int color;
                 if (page.score > 90) {
                     color = 0xFF00FF00; // Green
@@ -176,6 +179,7 @@ public class ResultsActivity extends AppCompatActivity {
                 holder.scoreIndicator.getBackground().setTint(color);
             } else {
                 holder.scoreIndicator.setVisibility(View.GONE);
+                holder.scoreValue.setVisibility(View.GONE);
             }
         }
 
@@ -189,12 +193,14 @@ public class ResultsActivity extends AppCompatActivity {
         TextView pageTitle;
         TextView pageContent;
         View scoreIndicator;
+        TextView scoreValue;
 
         public ResultsViewHolder(@NonNull View itemView) {
             super(itemView);
             pageTitle = itemView.findViewById(R.id.pageTitle);
             pageContent = itemView.findViewById(R.id.pageContent);
             scoreIndicator = itemView.findViewById(R.id.scoreIndicator);
+            scoreValue = itemView.findViewById(R.id.scoreValue);
         }
     }
 }
