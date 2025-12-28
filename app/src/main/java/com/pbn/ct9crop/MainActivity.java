@@ -69,7 +69,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView exposureValue;
 
     private static final double POS6_REF_L = 57.5;
-    public static double POS6_REF_A = 3.0;
+    public static double POS6_REF_A = 2.0;
     public static double POS6_REF_B = -2.0;
 
     public static final double[] whiteLabD50 = {100.0, 0.0, 0.0};
@@ -83,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
     public static double[] po6D50={0,0,0};
     public static double[] po7D50={0,0,0};
     public static double[] po8D50={0,0,0};
+    public static double[] reftTv={0,0,0,0};
 
     public static double[] topLabD50={0,0,0};
 
@@ -463,7 +464,7 @@ public class MainActivity extends AppCompatActivity {
             int[] brightest = averageTopBrightest(croppedBitmap, 30);
             int brightestMax = Math.max(brightest[0], Math.max(brightest[1], brightest[2]));
 
-            if (brightestMax < 225) {
+            if (brightestMax < 230) {
                 // 曝光不足，提示使用者調整曝光並重新拍攝
                 final int bMax = brightestMax;
                 if (!croppedBitmap.isRecycled()) croppedBitmap.recycle();
@@ -471,7 +472,7 @@ public class MainActivity extends AppCompatActivity {
                     new androidx.appcompat.app.AlertDialog.Builder(MainActivity.this)
                             .setTitle("曝光不足 / Insufficient Exposure")
                             .setMessage(String.format(Locale.getDefault(),
-                                    "偵測到目前最亮 RGB = %d (< 225)。請增加曝光（使用畫面下方滑桿）後重新拍攝。\n\nBrightest RGB = %d (< 230). Please increase exposure and recapture.", bMax, bMax))
+                                    "偵測到目前最亮 RGB = %d (< 230)。請增加曝光（使用畫面下方滑桿）後重新拍攝。\n\nBrightest RGB = %d (< 230). Please increase exposure and recapture.", bMax, bMax))
                             .setPositiveButton("OK", (d, w) -> {
                                 // Reset session when OK is clicked
                                 resetSession();
@@ -1713,12 +1714,62 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double[] k50XYZ = labD50ToXyz(safeLabAt(normalizedLabs, 7));
 
         double PX = whiteXYZ[0], PY = whiteXYZ[1], PZ = whiteXYZ[2];
-
+/*
         // C: 使用 X 和 Z 混合項 (係數 0.55)
         double denomC = (PX - 0.55 * PZ) - (cSolidXYZ[0] - 0.55 * cSolidXYZ[2]);
         double numerC = (PX - 0.55 * PZ) - (c50XYZ[0] - 0.55 * c50XYZ[2]);
-        double tvC = denomC == 0.0 ? 0.0 : (numerC / denomC) * 100.0;
 
+        //
+        double tvC = denomC == 0.0 ? 0.0 : (numerC / denomC) * 100.0;
+*/
+        double dx = c50XYZ[0] - PX;
+        double dy = c50XYZ[1] - PY;
+        double dz = c50XYZ[2] - PZ;
+        double dxRef = cSolidXYZ[0] - PX;
+        double dyRef = cSolidXYZ[1] - PY;
+        double dzRef = cSolidXYZ[2] - PZ;
+
+        double distPatch = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        double distSolid = Math.sqrt(dxRef*dxRef + dyRef*dyRef + dzRef*dzRef);
+
+        double tvC = distSolid == 0.0 ? 0.0 : 100.0 * (distPatch / distSolid);
+
+        dx = m50XYZ[0] - PX;
+        dy = m50XYZ[1] - PY;
+        dz = m50XYZ[2] - PZ;
+        dxRef = mSolidXYZ[0] - PX;
+        dyRef = mSolidXYZ[1] - PY;
+        dzRef = mSolidXYZ[2] - PZ;
+
+        distPatch = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        distSolid = Math.sqrt(dxRef*dxRef + dyRef*dyRef + dzRef*dzRef);
+
+        double tvM = distSolid == 0.0 ? 0.0 : 100.0 * (distPatch / distSolid);
+
+        dx = y50XYZ[0] - PX;
+        dy = y50XYZ[1] - PY;
+        dz = y50XYZ[2] - PZ;
+        dxRef = ySolidXYZ[0] - PX;
+        dyRef = ySolidXYZ[1] - PY;
+        dzRef = ySolidXYZ[2] - PZ;
+
+        distPatch = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        distSolid = Math.sqrt(dxRef*dxRef + dyRef*dyRef + dzRef*dzRef);
+
+        double tvY = distSolid == 0.0 ? 0.0 : 100.0 * (distPatch / distSolid);
+
+        dx = k50XYZ[0] - PX;
+        dy = k50XYZ[1] - PY;
+        dz = k50XYZ[2] - PZ;
+        dxRef = kSolidXYZ[0] - PX;
+        dyRef = kSolidXYZ[1] - PY;
+        dzRef = kSolidXYZ[2] - PZ;
+
+        distPatch = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        distSolid = Math.sqrt(dxRef*dxRef + dyRef*dyRef + dzRef*dzRef);
+
+        double tvK = distSolid == 0.0 ? 0.0 : 100.0 * (distPatch / distSolid);
+/*
         // M: 使用 Y 通道
         double denomM = PY - mSolidXYZ[1];
         double numerM = PY - m50XYZ[1];
@@ -1733,7 +1784,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         double denomK = PY - kSolidXYZ[1];
         double numerK = PY - k50XYZ[1];
         double tvK = denomK == 0.0 ? 0.0 : (numerK / denomK) * 100.0;
-
+*/
         // 限制 0..100 範圍並回傳順序 {C, M, Y, K}
         tvC = Math.max(0.0, Math.min(100.0, tvC));
         tvM = Math.max(0.0, Math.min(100.0, tvM));
@@ -1796,7 +1847,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         // --- 新增區塊結束 ---
 
         // 參考 TV (C, M, Y, K)
-        double[] refTv = new double[]{70.0, 67.0, 63.0, 68.0};
+        double [] refTv = new double[]{66.0, 65.0, 65.0, 70.0};
 
         final int s2 = scoreForDelta(dePos2);
         final int s5 = scoreForDelta(dePos5);
@@ -2034,7 +2085,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 
             // Normalized RGB
             int nR = (int) Math.round(orR * CrC);
-            int nG = (int) Math.round(orG * CgC);
+            int nG = (int) Math.round(orG * CgC);   
             int nB = (int) Math.round(orB * CbC);
 
             nR = Math.max(0, Math.min(255, nR));
@@ -2155,7 +2206,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         page3Sb.append(String.format(Locale.US, "pos 0 → Yellow  : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos0_u, po0D50[0], po0D50[1], po0D50[2]));
         page3Sb.append(String.format(Locale.US, "pos 8 → Black   : ΔE00:%.2f (%.2f,%.2f,%.2f)\n", dePos8_u, po8D50[0], po8D50[1], po8D50[2]));
 
-
+        //double[] tvRaw = computeCmyk50TvFromLabs(originalLabs, origWhiteLabD50);
         double[] tvRaw = computeCmyk50TvFromLabs(originalLabs, origWhiteLabD50);
         page3Sb.append("\nColorimetric Tone Value (50% CMYK) [raw]:\n");
         page3Sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV = %.2f %%\n", tvRaw[0]));
@@ -2212,7 +2263,7 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         sb.append(String.format(Locale.US, "Solid subtotal = %d / 20\n\n", solidSum));
 
         sb.append("--- 50%% CMYK TV ---\n");
-        double[] refTV = new double[]{70.0, 67.0, 63.0, 68.0};
+        double[] refTV = new double[]{66.0, 65.0, 65.0, 70.0};
         double diffC = Math.abs(tvNorm[0] - refTV[0]);
         double diffM = Math.abs(tvNorm[1] - refTV[1]);
         double diffY = Math.abs(tvNorm[2] - refTV[2]);
@@ -2223,10 +2274,10 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
         int scY = scoreForTvDiff(diffY);
         int scK = scoreForTvDiff(diffK);
 
-        sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV=%.1f (ref=70) diff=%.1f → %d pts\n", tvNorm[0], diffC, scC));
-        sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV=%.1f (ref=67) diff=%.1f → %d pts\n", tvNorm[1], diffM, scM));
-        sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV=%.1f (ref=63) diff=%.1f → %d pts\n", tvNorm[2], diffY, scY));
-        sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV=%.1f (ref=68) diff=%.1f → %d pts\n", tvNorm[3], diffK, scK));
+        sb.append(String.format(Locale.US, "pos 1 (C 50%%) : TV=%.1f (ref=%.1f) diff=%.1f → %d pts\n", tvNorm[0], refTV[0] ,diffC, scC));
+        sb.append(String.format(Locale.US, "pos 4 (M 50%%) : TV=%.1f (ref=%.1f) diff=%.1f → %d pts\n", tvNorm[1], refTV[1],diffM, scM));
+        sb.append(String.format(Locale.US, "pos 3 (Y 50%%) : TV=%.1f (ref=%.1f) diff=%.1f → %d pts\n", tvNorm[2], refTV[2],diffY, scY));
+        sb.append(String.format(Locale.US, "pos 7 (K 50%%) : TV=%.1f (ref=%.1f) diff=%.1f → %d pts\n", tvNorm[3], refTV[3],diffK, scK));
 
         int tvSum = scC + scM + scY + scK;
         sb.append(String.format(Locale.US, "TV subtotal = %d / 40\n\n", tvSum));
